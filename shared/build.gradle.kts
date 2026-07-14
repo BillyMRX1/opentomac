@@ -14,7 +14,9 @@ kotlin {
     macosArm64 {
         binaries.framework {
             baseName = "OpentomacShared"
-            isStatic = true
+            // Dynamic so Kotlin/Native links the libsodium cinterop into the framework
+            // binary; a static framework would leave those C symbols unresolved in the app.
+            isStatic = false
         }
     }
 

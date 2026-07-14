@@ -5,3 +5,7 @@ local.properties
 xcuserdata/
 .kotlin/
 .DS_Store
+
+# macOS generated
+macos/Opentomac.xcodeproj/
+macos/DerivedData/

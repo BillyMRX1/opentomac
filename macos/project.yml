@@ -1,0 +1,42 @@
+name: Opentomac
+options:
+  bundleIdPrefix: dev.opentomac
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: "YES"
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    FRAMEWORK_SEARCH_PATHS:
+      - $(inherited)
+      - $(SRCROOT)/../shared/build/bin/macosArm64/debugFramework
+    ENABLE_HARDENED_RUNTIME: "YES"
+targets:
+  Opentomac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleName: opentomac
+        CFBundleDisplayName: opentomac
+        LSMinimumSystemVersion: "14.0"
+        LSUIElement: false
+        NSLocalNetworkUsageDescription: opentomac connects directly to your paired Android device over the local network.
+        NSBonjourServices:
+          - _opentomac._tcp
+    dependencies:
+      - framework: ../shared/build/bin/macosArm64/debugFramework/OpentomacShared.framework
+        embed: true
+        codeSign: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.opentomac.mac
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        ENABLE_PREVIEWS: "YES"
