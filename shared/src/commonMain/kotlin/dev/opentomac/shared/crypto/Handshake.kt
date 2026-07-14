@@ -35,10 +35,11 @@ class HandshakeResult(
  *
  * 1. Initiator -> responder: ephemeral X25519 key `eA` (plus the pairing token, if any).
  * 2. Responder -> initiator: ephemeral `eB`, its Ed25519 identity key, and a signature
- *    over the transcript `(eA || eB || token)`.
+ *    over the domain-separated transcript `("opentomac-resp" || eA || eB || token)`.
  * 3. Initiator verifies (against `expectedPeerKey` when pinned), then sends its own
- *    identity key and signature over the same transcript; the responder verifies
- *    symmetrically.
+ *    identity key and a signature over `("opentomac-init" || eA || eB || token)`; the
+ *    responder verifies symmetrically. The role-specific domain prefixes prevent
+ *    signature reflection: one side's signature can never verify as the other role's.
  *
  * The session secret is X25519 DH between the ephemerals; the two 32-byte direction
  * keys are a keyed BLAKE2b-64 of the transcript hash (key = DH secret) split in half.
@@ -54,6 +55,10 @@ object Handshake {
     private const val ED25519_SIGNATURE_BYTES = 64
     private const val TRANSCRIPT_HASH_BYTES = 32
     private const val SESSION_KEY_BYTES = 32
+
+    /** Role-specific signing domains so a responder signature never verifies as an initiator's. */
+    private val INITIATOR_SIGNATURE_DOMAIN = "opentomac-init".encodeToByteArray()
+    private val RESPONDER_SIGNATURE_DOMAIN = "opentomac-resp".encodeToByteArray()
 
     suspend fun initiate(
         transport: FrameTransport,
@@ -76,11 +81,16 @@ object Handshake {
         requireLength(accept.signature, ED25519_SIGNATURE_BYTES, "responder signature")
         checkPinnedKey(expectedPeerKey, peerIdentityKey, "responder")
 
-        val signedTranscript = ephemeralPublic + peerEphemeral + token
-        verifySignature(accept.signature, signedTranscript, peerIdentityKey, "responder")
+        val coreTranscript = ephemeralPublic + peerEphemeral + token
+        verifySignature(
+            accept.signature,
+            RESPONDER_SIGNATURE_DOMAIN + coreTranscript,
+            peerIdentityKey,
+            "responder",
+        )
 
         val mySignature = Signature.detached(
-            signedTranscript.toUByteArray(),
+            (INITIATOR_SIGNATURE_DOMAIN + coreTranscript).toUByteArray(),
             identity.secretKey.toUByteArray(),
         ).toByteArray()
         val frame3 = encode(PairConfirm(signature = mySignature, publicKey = identity.publicKey), seq = 1)
@@ -113,9 +123,9 @@ object Handshake {
         val ephemeralSecret = LibsodiumRandom.buf(X25519_KEY_BYTES)
         val ephemeralPublic = ScalarMultiplication.scalarMultiplicationBase(ephemeralSecret).toByteArray()
 
-        val signedTranscript = peerEphemeral + ephemeralPublic + init.token
+        val coreTranscript = peerEphemeral + ephemeralPublic + init.token
         val mySignature = Signature.detached(
-            signedTranscript.toUByteArray(),
+            (RESPONDER_SIGNATURE_DOMAIN + coreTranscript).toUByteArray(),
             identity.secretKey.toUByteArray(),
         ).toByteArray()
         val frame2 = encode(
@@ -129,7 +139,12 @@ object Handshake {
         val peerIdentityKey = requireLength(confirm.publicKey, ED25519_PUBLIC_KEY_BYTES, "initiator identity key")
         requireLength(confirm.signature, ED25519_SIGNATURE_BYTES, "initiator signature")
         checkPinnedKey(expectedPeerKey, peerIdentityKey, "initiator")
-        verifySignature(confirm.signature, signedTranscript, peerIdentityKey, "initiator")
+        verifySignature(
+            confirm.signature,
+            INITIATOR_SIGNATURE_DOMAIN + coreTranscript,
+            peerIdentityKey,
+            "initiator",
+        )
 
         val transcriptHash = transcriptHash(frame1, frame2, frame3)
         val (initiatorToResponder, responderToInitiator) =

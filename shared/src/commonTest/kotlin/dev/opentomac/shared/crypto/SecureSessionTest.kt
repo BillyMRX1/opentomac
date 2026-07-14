@@ -3,7 +3,11 @@ package dev.opentomac.shared.crypto
 import dev.opentomac.shared.protocol.FrameTransport
 import dev.opentomac.shared.protocol.InMemoryFrameTransport
 import dev.opentomac.shared.protocol.ProtocolException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -61,6 +65,30 @@ class SecureSessionTest {
             recording.received[0].contentEquals(recording.received[1]),
             "nonce must advance so identical plaintexts encrypt differently",
         )
+
+        sessionA.close()
+        sessionB.close()
+    }
+
+    @Test
+    fun concurrentSendsAllDecryptExactlyOnce() = runTest {
+        ensureLibsodiumInitialized()
+        val (ta, tb) = InMemoryFrameTransport.pair()
+        val sessionA = SecureSession(ta, SessionKeys(txKey = keyAtoB, rxKey = keyBtoA), isInitiator = true)
+        val sessionB = SecureSession(tb, SessionKeys(txKey = keyBtoA, rxKey = keyAtoB), isInitiator = false)
+        val frameCount = 100
+
+        // Real multi-threaded concurrency: without serialized nonce assignment two
+        // coroutines can reuse a counter (nonce reuse) or emit frames out of counter order.
+        withContext(Dispatchers.Default) {
+            (0 until frameCount).map { i ->
+                launch { sessionA.send("frame-$i".encodeToByteArray()) }
+            }.joinAll()
+        }
+
+        val received = List(frameCount) { sessionB.receive().decodeToString() }
+        assertEquals(frameCount, received.toSet().size, "every plaintext must arrive exactly once")
+        assertEquals((0 until frameCount).map { "frame-$it" }.toSet(), received.toSet())
 
         sessionA.close()
         sessionB.close()

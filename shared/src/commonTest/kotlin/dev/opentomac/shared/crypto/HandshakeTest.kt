@@ -3,6 +3,7 @@ package dev.opentomac.shared.crypto
 import dev.opentomac.shared.protocol.FrameTransport
 import dev.opentomac.shared.protocol.InMemoryFrameTransport
 import dev.opentomac.shared.protocol.PairAccept
+import dev.opentomac.shared.protocol.PairConfirm
 import dev.opentomac.shared.protocol.ProtocolCodec
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
@@ -118,6 +119,47 @@ class HandshakeTest {
         ta.close()
         tb.close()
         responder.await()
+    }
+
+    @Test
+    fun reflectedResponderSignatureFailsAtResponder() = runTest {
+        val idA = Identity.generate()
+        val idB = Identity.generate()
+        val (ta, tb) = InMemoryFrameTransport.pair()
+
+        // Signature-reflection MITM: capture the responder's own frame2 signature and
+        // identity key, then present them back to the responder inside frame3. Without
+        // domain-separated signing transcripts the responder's signature would verify
+        // as an initiator signature.
+        var capturedAccept: PairAccept? = null
+        val mitm = object : FrameTransport {
+            override suspend fun send(bytes: ByteArray) {
+                val envelope = ProtocolCodec.decode(bytes)
+                (envelope.payload as? PairAccept)?.let { capturedAccept = it }
+                tb.send(bytes)
+            }
+
+            override suspend fun receive(): ByteArray {
+                val bytes = tb.receive()
+                val envelope = ProtocolCodec.decode(bytes)
+                if (envelope.payload !is PairConfirm) return bytes
+                val accept = capturedAccept ?: return bytes
+                return ProtocolCodec.encode(
+                    envelope.copy(
+                        payload = PairConfirm(signature = accept.signature, publicKey = accept.publicKey),
+                    ),
+                )
+            }
+
+            override fun close() = tb.close()
+        }
+
+        val initiator = async { runCatching { Handshake.initiate(ta, idA) } }
+        assertFailsWith<CryptoException> { Handshake.respond(mitm, idB) }
+
+        ta.close()
+        tb.close()
+        initiator.await()
     }
 
     @Test
