@@ -186,11 +186,13 @@ object AppRuntime {
     }
 
     suspend fun connect(device: TrustedDevice) = runCatchingAction("Could not connect") {
-        val endpointBytes = requireNotNull(kv).get("$ENDPOINT_PREFIX${device.deviceId}")
-            ?: error("No saved network address for ${device.displayName}. Pair it again.")
-        val endpoint = Endpoint.parse(endpointBytes.decodeToString())
-        requireNotNull(transportFactory).configure(endpoint)
-        requireNotNull(sessionManager).connect(device)
+        withContext(Dispatchers.IO) {
+            val endpointBytes = requireNotNull(kv).get("$ENDPOINT_PREFIX${device.deviceId}")
+                ?: error("No saved network address for ${device.displayName}. Pair it again.")
+            val endpoint = Endpoint.parse(endpointBytes.decodeToString())
+            requireNotNull(transportFactory).configure(endpoint)
+            requireNotNull(sessionManager).connect(device)
+        }
     }
 
     suspend fun disconnect() {
@@ -198,10 +200,12 @@ object AppRuntime {
     }
 
     suspend fun forget(device: TrustedDevice) = runCatchingAction("Could not forget device") {
-        safeSend(ChannelId.CONTROL, RevokeDevice(device.deviceId))
-        requireNotNull(pairingManager).revoke(device.deviceId)
-        requireNotNull(kv).remove("$ENDPOINT_PREFIX${device.deviceId}")
-        refreshDevices()
+        withContext(Dispatchers.IO) {
+            safeSend(ChannelId.CONTROL, RevokeDevice(device.deviceId))
+            requireNotNull(pairingManager).revoke(device.deviceId)
+            requireNotNull(kv).remove("$ENDPOINT_PREFIX${device.deviceId}")
+            refreshDevices()
+        }
     }
 
     suspend fun joinPairing(encodedPayload: String) {
@@ -211,11 +215,13 @@ object AppRuntime {
             val endpoint = payload.addresses.firstNotNullOfOrNull { address ->
                 runCatching { Endpoint.parse(address) }.getOrNull()
             } ?: error("Pairing code has no usable TCP address")
-            val transport = TcpTransportFactory(endpoint.host, endpoint.port).connect()
-            val pending = try {
-                requireNotNull(pairingManager).join(payload, transport)
-            } finally {
-                transport.close()
+            val pending = withContext(Dispatchers.IO) {
+                val transport = TcpTransportFactory(endpoint.host, endpoint.port).connect()
+                try {
+                    requireNotNull(pairingManager).join(payload, transport)
+                } finally {
+                    transport.close()
+                }
             }
             pendingPairing = pending
             pendingEndpoint = endpoint
@@ -231,13 +237,16 @@ object AppRuntime {
         val pending = pendingPairing ?: return
         mutablePairingState.value = PairingState.Working("Saving trusted device")
         try {
-            val shortId = pending.peerIdentityKey.take(3).joinToString("") { "%02x".format(it) }
-            val device = pending.confirm("Desktop $shortId", "desktop")
-            pendingEndpoint?.let { endpoint ->
-                requireNotNull(kv).put(
-                    "$ENDPOINT_PREFIX${device.deviceId}",
-                    endpoint.encoded().encodeToByteArray(),
-                )
+            val device = withContext(Dispatchers.IO) {
+                val shortId = pending.peerIdentityKey.take(3).joinToString("") { "%02x".format(it) }
+                pending.confirm("Desktop $shortId", "desktop").also { confirmed ->
+                    pendingEndpoint?.let { endpoint ->
+                        requireNotNull(kv).put(
+                            "$ENDPOINT_PREFIX${confirmed.deviceId}",
+                            endpoint.encoded().encodeToByteArray(),
+                        )
+                    }
+                }
             }
             pendingPairing = null
             pendingEndpoint = null

@@ -178,6 +178,15 @@ class MacController(
         onPairing(MacPairingState(phase = "idle"))
     }
 
+    /** Cancels an in-progress host pairing, closing the listening server if any. */
+    fun cancelPairing() {
+        pendingPairing?.reject()
+        pendingPairing = null
+        hostServer?.close()
+        hostServer = null
+        onPairing(MacPairingState(phase = "idle"))
+    }
+
     fun forget(deviceId: String) {
         scope.launch {
             safeSend(ChannelId.CONTROL, RevokeDevice(deviceId))

@@ -91,6 +91,7 @@ private struct PairingSheet: View {
                 if let code = state?.code, let qr = QRCode.image(from: code) {
                     qr.resizable().interpolation(.none).frame(width: 220, height: 220)
                 }
+                Button("Cancel") { model.cancelPairing(); isPresented = false }
             case "verify":
                 Text("Confirm this code matches your phone").font(.headline)
                 Text(state?.code ?? "").font(.system(size: 40, weight: .bold, design: .monospaced))
@@ -107,6 +108,7 @@ private struct PairingSheet: View {
                 Button("Close") { isPresented = false }
             default:
                 ProgressView("Preparing…")
+                Button("Cancel") { model.cancelPairing(); isPresented = false }
             }
         }
         .padding(28)

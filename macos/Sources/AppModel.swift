@@ -35,6 +35,7 @@ final class AppModel: ObservableObject {
     func startHosting() { controller.startHosting() }
     func confirmPairing() { controller.confirmPairing() }
     func rejectPairing() { controller.rejectPairing() }
+    func cancelPairing() { controller.cancelPairing() }
     func forget(_ device: TrustedDevice) { controller.forget(deviceId: device.deviceId) }
     func sendFiles(_ paths: [String]) { controller.sendFiles(paths: paths) }
     func diagnostics() -> String { controller.diagnostics() }
