@@ -6,6 +6,12 @@ kotlinx-serialization = "1.8.0"
 ktor = "3.1.1"
 okio = "3.10.2"
 libsodium-bindings = "0.9.2"
+androidx-core = "1.16.0"
+androidx-activity = "1.10.1"
+androidx-lifecycle = "2.9.0"
+androidx-security = "1.1.0-alpha06"
+compose-bom = "2025.04.01"
+zxing-embedded = "4.3.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
@@ -15,8 +21,24 @@ ktor-network = { module = "io.ktor:ktor-network", version.ref = "ktor" }
 okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
 okio-fakefilesystem = { module = "com.squareup.okio:okio-fakefilesystem", version.ref = "okio" }
 libsodium-bindings = { module = "com.ionspin.kotlin:multiplatform-crypto-libsodium-bindings", version.ref = "libsodium-bindings" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
+androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidx-lifecycle" }
+androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
+androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "androidx-lifecycle" }
+androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "androidx-security" }
+androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
+androidx-compose-ui = { module = "androidx.compose.ui:ui" }
+androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
+androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+androidx-compose-foundation = { module = "androidx.compose.foundation:foundation" }
+androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
+zxing-android-embedded = { module = "com.journeyapps:zxing-android-embedded", version.ref = "zxing-embedded" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 androidLibrary = { id = "com.android.library", version.ref = "agp" }
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+kotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlinCompose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

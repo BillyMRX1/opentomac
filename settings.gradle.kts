@@ -20,3 +20,4 @@ dependencyResolutionManagement {
 rootProject.name = "opentomac"
 
 include(":shared")
+include(":android")
