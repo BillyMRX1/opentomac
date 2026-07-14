@@ -16,13 +16,25 @@ import okio.EOFException
 object FrameCodec {
     const val MAX_FRAME_BYTES: Int = 4 * 1024 * 1024
 
-    /** Writes one frame to [sink]. Throws [ProtocolException] if [bytes] exceeds [MAX_FRAME_BYTES]. */
-    fun writeFrame(sink: BufferedSink, bytes: ByteArray) {
-        if (bytes.size > MAX_FRAME_BYTES) {
+    /**
+     * Throws [ProtocolException] if a frame of [byteCount] bytes exceeds [MAX_FRAME_BYTES].
+     * Every frame-sending path (codec, in-memory transport, network transports) must call
+     * this before emitting a frame.
+     */
+    fun checkSendSize(byteCount: Int) {
+        if (byteCount > MAX_FRAME_BYTES) {
             throw ProtocolException(
-                "Refusing to send frame of ${bytes.size} bytes; limit is $MAX_FRAME_BYTES bytes",
+                "Refusing to send frame of $byteCount bytes; limit is $MAX_FRAME_BYTES bytes",
             )
         }
+    }
+
+    /**
+     * Writes one frame to [sink]. Throws [ProtocolException] if [bytes] exceeds [MAX_FRAME_BYTES].
+     * The caller is responsible for flushing [sink]; this method only buffers the frame.
+     */
+    fun writeFrame(sink: BufferedSink, bytes: ByteArray) {
+        checkSendSize(bytes.size)
         sink.writeInt(bytes.size)
         sink.write(bytes)
     }
@@ -71,11 +83,7 @@ class InMemoryFrameTransport private constructor(
 ) : FrameTransport {
 
     override suspend fun send(bytes: ByteArray) {
-        if (bytes.size > FrameCodec.MAX_FRAME_BYTES) {
-            throw ProtocolException(
-                "Refusing to send frame of ${bytes.size} bytes; limit is ${FrameCodec.MAX_FRAME_BYTES} bytes",
-            )
-        }
+        FrameCodec.checkSendSize(bytes.size)
         try {
             outgoing.send(bytes)
         } catch (e: ClosedSendChannelException) {

@@ -1,5 +1,11 @@
+@file:OptIn(ExperimentalSerializationApi::class, ExperimentalStdlibApi::class)
+
 package dev.opentomac.shared.protocol
 
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.protobuf.ProtoBuf
+import kotlinx.serialization.protobuf.ProtoNumber
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -106,7 +112,16 @@ class MessagesTest {
 
     @Test
     fun fileOfferReplyRoundTrip() {
-        val msg = FileOfferReply(jobId = "job-1", accepted = true, perFilePolicy = listOf(0, 1, 2))
+        val msg = FileOfferReply(
+            jobId = "job-1",
+            accepted = true,
+            perFilePolicy = listOf(
+                DuplicatePolicy.ASK,
+                DuplicatePolicy.REPLACE,
+                DuplicatePolicy.KEEP_BOTH,
+                DuplicatePolicy.SKIP,
+            ),
+        )
         assertEquals(msg, roundTrip(msg))
     }
 
@@ -257,6 +272,63 @@ class MessagesTest {
     }
 
     @Test
+    fun unsupportedVersionWithUndecodablePayloadReportsVersionError() {
+        // A future-version envelope whose payload this build cannot decode must be
+        // reported as an unsupported version, not as a malformed payload.
+        val wire = WireEnvelope(
+            version = ProtocolCodec.PROTOCOL_VERSION + 1,
+            channel = ChannelId.CONTROL,
+            seq = 1,
+            payloadBytes = byteArrayOf(0x7F, -1, -1, -1), // garbage, undecodable as Message
+        )
+        val bytes = ProtoBuf.encodeToByteArray(WireEnvelope.serializer(), wire)
+        val e = assertFailsWith<ProtocolException> { ProtocolCodec.decode(bytes) }
+        assertTrue(e !is UnknownMessageException)
+        assertTrue(
+            e.message!!.contains("Unsupported protocol version"),
+            "expected version error, was: ${e.message}",
+        )
+    }
+
+    @Test
+    fun unknownDiscriminatorThrowsUnknownMessageException() {
+        // Same polymorphic wire shape (field 1 = type string, field 2 = body message)
+        // but with a discriminator this build does not know.
+        val payloadBytes = ProtoBuf.encodeToByteArray(
+            FakePolymorphicMessage.serializer(),
+            FakePolymorphicMessage(type = "message_from_the_future", value = FakeBody(x = 42)),
+        )
+        val wire = WireEnvelope(
+            version = ProtocolCodec.PROTOCOL_VERSION,
+            channel = ChannelId.EVENT,
+            seq = 5,
+            payloadBytes = payloadBytes,
+        )
+        val bytes = ProtoBuf.encodeToByteArray(WireEnvelope.serializer(), wire)
+        val e = assertFailsWith<UnknownMessageException> { ProtocolCodec.decode(bytes) }
+        assertTrue(
+            e.message!!.contains("message_from_the_future"),
+            "expected discriminator in message, was: ${e.message}",
+        )
+    }
+
+    @Test
+    fun goldenHeartbeatEnvelopeBytes() {
+        // Pins the wire format. If this test fails, the change is protocol-breaking:
+        // bump PROTOCOL_VERSION or revert, do not just update the hex.
+        val envelope = Envelope(
+            version = ProtocolCodec.PROTOCOL_VERSION,
+            channel = ChannelId.CONTROL,
+            seq = 42,
+            payload = Heartbeat(sentAtMs = 123456789),
+        )
+        // Layout: 0801 version=1, 1000 channel=CONTROL, 182a seq=42,
+        // 2212 payloadBytes(18): 0a09 "heartbeat" discriminator, 1205 body { 08 sentAtMs varint }.
+        val expectedHex = "08011000182a22120a09686561727462656174120508959aef3a"
+        assertEquals(expectedHex, ProtocolCodec.encode(envelope).toHexString())
+    }
+
+    @Test
     fun garbageBytesThrowProtocolException() {
         assertFailsWith<ProtocolException> {
             ProtocolCodec.decode(byteArrayOf(0x7F, -1, -1, -1, -1, -1, 0x00, 0x13, 0x37))
@@ -273,3 +345,15 @@ class MessagesTest {
         assertTrue(a != c)
     }
 }
+
+/** Mirrors kotlinx ProtoBuf's polymorphic wire shape with an unknown discriminator. */
+@Serializable
+private data class FakePolymorphicMessage(
+    @ProtoNumber(1) val type: String,
+    @ProtoNumber(2) val value: FakeBody,
+)
+
+@Serializable
+private data class FakeBody(
+    @ProtoNumber(1) val x: Int,
+)
