@@ -176,6 +176,8 @@ class MessagesTest {
                 MediaItem(mediaId = "m2", name = "VID_0002.mp4", sizeBytes = 88_000_000, mimeType = "video/mp4", modifiedAt = 1_720_000_100_000),
             ),
             hasMore = true,
+            bucket = "Camera",
+            page = 3,
         )
         assertEquals(msg, roundTrip(msg))
     }

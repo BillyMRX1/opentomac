@@ -322,6 +322,8 @@ data class MediaListRequest(
 data class MediaListResponse(
     @ProtoNumber(1) val items: List<MediaItem> = emptyList(),
     @ProtoNumber(2) val hasMore: Boolean,
+    @ProtoNumber(3) val bucket: String = "",
+    @ProtoNumber(4) val page: Int = 0,
 ) : Message
 
 @Serializable
