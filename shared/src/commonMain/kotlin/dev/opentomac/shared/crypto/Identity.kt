@@ -35,6 +35,12 @@ internal fun ByteArray.toHex(): String = joinToString("") { byte ->
     byte.toUByte().toString(16).padStart(2, '0')
 }
 
+/** Derives the stable lowercase BLAKE2b-16 device ID for an Ed25519 public key. */
+internal fun deviceIdFor(publicKey: ByteArray): String = GenericHash.genericHash(
+    message = publicKey.toUByteArray(),
+    requestedHashLength = 16,
+).toByteArray().toHex()
+
 /**
  * A device's long-term Ed25519 identity. [deviceId] is the lowercase hex encoding of
  * BLAKE2b-16 of the public key, so it is stable for the lifetime of the key material.
@@ -50,7 +56,6 @@ class Identity private constructor(
     companion object {
         private const val ED25519_PUBLIC_KEY_BYTES = 32
         private const val ED25519_SECRET_KEY_BYTES = 64
-        private const val DEVICE_ID_HASH_BYTES = 16
 
         /** Generates a fresh Ed25519 keypair. */
         suspend fun generate(): Identity {
@@ -76,11 +81,7 @@ class Identity private constructor(
         }
 
         private fun build(publicKey: ByteArray, secretKey: ByteArray): Identity {
-            val idHash = GenericHash.genericHash(
-                message = publicKey.toUByteArray(),
-                requestedHashLength = DEVICE_ID_HASH_BYTES,
-            )
-            return Identity(publicKey, secretKey, idHash.toByteArray().toHex())
+            return Identity(publicKey, secretKey, deviceIdFor(publicKey))
         }
     }
 }
