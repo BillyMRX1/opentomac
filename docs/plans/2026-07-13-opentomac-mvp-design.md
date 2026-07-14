@@ -104,3 +104,11 @@ USB no-ADB transport, screen mirroring and remote control, SMS/MMS and calls, vi
 ## Clean-room rules (spec section 15)
 
 No decompilation, no copied names/logos/assets/copy, independently designed protocol and UI, and each requirement traced to a public fact, observed UI behavior, or engineering inference.
+
+## Implementation notes (recorded during build)
+
+Two decisions departed from the original design and are recorded here for accuracy:
+
+1. **Session channel.** The transport section above described "TLS 1.3 mTLS." Pinned raw-key mutual TLS is not tractable across Kotlin/Native and Android for the MVP, so the session channel is an equivalent authenticated construction in common Kotlin, modeled on Noise XX: ephemeral X25519 key agreement, Ed25519 identity signatures over a domain-separated transcript (distinct initiator and responder prefixes to prevent signature reflection), BLAKE2b key derivation, and per-frame ChaCha20-Poly1305 with direction-tagged counter nonces. The entire handshake is unit tested in common code.
+
+2. **macOS framework linkage.** The shared Kotlin Multiplatform framework is built dynamic rather than static for the macOS app, so Kotlin/Native links the libsodium cinterop into the framework binary. A static framework left those C symbols unresolved at app link time.
