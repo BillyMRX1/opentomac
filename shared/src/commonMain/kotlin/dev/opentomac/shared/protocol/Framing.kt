@@ -29,6 +29,15 @@ object FrameCodec {
         }
     }
 
+    /** Validates a peer-declared frame length for every receiving transport. */
+    internal fun checkReceiveSize(byteCount: Int) {
+        if (byteCount < 0 || byteCount > MAX_FRAME_BYTES) {
+            throw ProtocolException(
+                "Rejecting frame with declared length $byteCount; must be between 0 and $MAX_FRAME_BYTES bytes",
+            )
+        }
+    }
+
     /**
      * Writes one frame to [sink]. Throws [ProtocolException] if [bytes] exceeds [MAX_FRAME_BYTES].
      * The caller is responsible for flushing [sink]; this method only buffers the frame.
@@ -49,11 +58,7 @@ object FrameCodec {
         } catch (e: EOFException) {
             throw ProtocolException("Truncated frame: stream ended inside the 4-byte length prefix", e)
         }
-        if (length < 0 || length > MAX_FRAME_BYTES) {
-            throw ProtocolException(
-                "Rejecting frame with declared length $length; must be between 0 and $MAX_FRAME_BYTES bytes",
-            )
-        }
+        checkReceiveSize(length)
         return try {
             source.readByteArray(length.toLong())
         } catch (e: EOFException) {
