@@ -100,33 +100,51 @@ data class PairInit(
     override fun hashCode(): Int = 31 * token.contentHashCode() + publicKey.contentHashCode()
 }
 
+/**
+ * Handshake message 2 (responder -> initiator): the responder's long-term identity
+ * key in [publicKey], its ephemeral X25519 key in [ephemeralKey], and an Ed25519
+ * [signature] over the handshake transcript.
+ */
 @Serializable
 @SerialName("pair_accept")
 data class PairAccept(
     @ProtoNumber(1) val publicKey: ByteArray,
     @ProtoNumber(2) val signature: ByteArray,
+    @ProtoNumber(3) val ephemeralKey: ByteArray = ByteArray(0),
 ) : Message {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is PairAccept) return false
-        return publicKey.contentEquals(other.publicKey) && signature.contentEquals(other.signature)
+        return publicKey.contentEquals(other.publicKey) &&
+            signature.contentEquals(other.signature) &&
+            ephemeralKey.contentEquals(other.ephemeralKey)
     }
 
-    override fun hashCode(): Int = 31 * publicKey.contentHashCode() + signature.contentHashCode()
+    override fun hashCode(): Int {
+        var result = publicKey.contentHashCode()
+        result = 31 * result + signature.contentHashCode()
+        result = 31 * result + ephemeralKey.contentHashCode()
+        return result
+    }
 }
 
+/**
+ * Handshake message 3 (initiator -> responder): the initiator's long-term identity
+ * key in [publicKey] and its Ed25519 [signature] over the handshake transcript.
+ */
 @Serializable
 @SerialName("pair_confirm")
 data class PairConfirm(
     @ProtoNumber(1) val signature: ByteArray,
+    @ProtoNumber(2) val publicKey: ByteArray = ByteArray(0),
 ) : Message {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is PairConfirm) return false
-        return signature.contentEquals(other.signature)
+        return signature.contentEquals(other.signature) && publicKey.contentEquals(other.publicKey)
     }
 
-    override fun hashCode(): Int = signature.contentHashCode()
+    override fun hashCode(): Int = 31 * signature.contentHashCode() + publicKey.contentHashCode()
 }
 
 @Serializable

@@ -54,18 +54,27 @@ class MessagesTest {
 
     @Test
     fun pairAcceptRoundTrip() {
-        val msg = PairAccept(publicKey = ByteArray(32) { (it + 1).toByte() }, signature = ByteArray(64) { (255 - it).toByte() })
+        val msg = PairAccept(
+            publicKey = ByteArray(32) { (it + 1).toByte() },
+            signature = ByteArray(64) { (255 - it).toByte() },
+            ephemeralKey = ByteArray(32) { (it * 2).toByte() },
+        )
         val decoded = assertIs<PairAccept>(roundTrip(msg))
         assertContentEquals(msg.publicKey, decoded.publicKey)
         assertContentEquals(msg.signature, decoded.signature)
+        assertContentEquals(msg.ephemeralKey, decoded.ephemeralKey)
         assertEquals(msg, decoded)
     }
 
     @Test
     fun pairConfirmRoundTrip() {
-        val msg = PairConfirm(signature = ByteArray(64) { it.toByte() })
+        val msg = PairConfirm(
+            signature = ByteArray(64) { it.toByte() },
+            publicKey = ByteArray(32) { (it + 7).toByte() },
+        )
         val decoded = assertIs<PairConfirm>(roundTrip(msg))
         assertContentEquals(msg.signature, decoded.signature)
+        assertContentEquals(msg.publicKey, decoded.publicKey)
         assertEquals(msg, decoded)
     }
 
