@@ -31,6 +31,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlin.concurrent.Volatile
 import okio.FileSystem
 import okio.Path.Companion.toPath
 import platform.Foundation.NSHomeDirectory
@@ -70,7 +71,11 @@ class MacController(
     private val transportFactory = ConfigurableTransportFactory()
 
     private var pendingPairing: PendingPairing? = null
-    private var hostServer: TcpServer? = null
+    private var sessionServer: TcpServer? = null
+    private var boundPort: Int = 0
+
+    @Volatile
+    private var hostingActive = false
 
     fun start() {
         scope.launch {
@@ -130,30 +135,67 @@ class MacController(
             scope.launch {
                 sessionManager.state.collect { onState(it.describe()) }
             }
+            startAcceptLoop()
+        }
+    }
+
+    /**
+     * One persistent listener serves both roles: an armed pairing (via [startHosting])
+     * claims the next inbound connection; every other connection is an incoming session
+     * from an already-trusted peer and is handed to the session manager.
+     */
+    private fun startAcceptLoop() {
+        scope.launch {
+            val server = try {
+                TcpServer(port).also { it.start() }
+            } catch (cause: Throwable) {
+                onState("Listen port $port unavailable: ${cause.message}")
+                return@launch
+            }
+            sessionServer = server
+            boundPort = server.boundPort
+            while (true) {
+                val transport = try {
+                    server.accept()
+                } catch (cause: Throwable) {
+                    break
+                }
+                scope.launch { handleAccepted(transport) }
+            }
+        }
+    }
+
+    private suspend fun handleAccepted(transport: FrameTransport) {
+        if (hostingActive) {
+            hostingActive = false
+            try {
+                val pending = pairingManager.awaitPairing(transport)
+                pendingPairing = pending
+                onPairing(MacPairingState(phase = "verify", code = pending.verificationCode))
+            } catch (cause: Throwable) {
+                onPairing(MacPairingState(phase = "error", message = cause.message ?: "Pairing failed"))
+            } finally {
+                transport.close()
+            }
+        } else {
+            try {
+                sessionManager.listen(transport)
+            } catch (cause: Throwable) {
+                transport.close()
+            }
         }
     }
 
     fun startHosting() {
         scope.launch {
             try {
-                val server = TcpServer(port).also { it.start() }
-                hostServer?.close()
-                hostServer = server
-                val addresses = localAddresses().map { "$it:${server.boundPort}" }
+                val listenPort = if (boundPort != 0) boundPort else port
+                val addresses = localAddresses().map { "$it:$listenPort" }
                 val payload = pairingManager.startHosting(addresses)
+                hostingActive = true
                 onPairing(MacPairingState(phase = "hosting", code = payload.toBase64()))
-                val transport = server.accept()
-                try {
-                    val pending = pairingManager.awaitPairing(transport)
-                    pendingPairing = pending
-                    onPairing(MacPairingState(phase = "verify", code = pending.verificationCode))
-                } finally {
-                    transport.close()
-                    server.close()
-                    if (hostServer === server) hostServer = null
-                }
             } catch (cause: Throwable) {
-                onPairing(MacPairingState(phase = "error", message = cause.message ?: "Pairing failed"))
+                onPairing(MacPairingState(phase = "error", message = cause.message ?: "Cannot host"))
             }
         }
     }
@@ -178,13 +220,15 @@ class MacController(
         onPairing(MacPairingState(phase = "idle"))
     }
 
-    /** Cancels an in-progress host pairing, closing the listening server if any. */
+    /** Cancels an armed or in-progress host pairing; the session listener keeps running. */
     fun cancelPairing() {
-        pendingPairing?.reject()
-        pendingPairing = null
-        hostServer?.close()
-        hostServer = null
-        onPairing(MacPairingState(phase = "idle"))
+        scope.launch {
+            hostingActive = false
+            pendingPairing?.reject()
+            pendingPairing = null
+            pairingManager.cancelHosting()
+            onPairing(MacPairingState(phase = "idle"))
+        }
     }
 
     fun forget(deviceId: String) {

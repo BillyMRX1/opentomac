@@ -49,6 +49,11 @@ class PairingManager(
         )
     }
 
+    /** Discards any pending host token so a new pairing can be started immediately. */
+    suspend fun cancelHosting() {
+        hostingMutex.withLock { activeToken = null }
+    }
+
     /** Consumes the active host token before accepting exactly one handshake attempt. */
     suspend fun awaitPairing(transport: FrameTransport): PendingPairing {
         val token = hostingMutex.withLock {
