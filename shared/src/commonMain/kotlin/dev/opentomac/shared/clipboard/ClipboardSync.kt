@@ -20,6 +20,7 @@ import kotlin.random.Random
 enum class ClipType {
     TEXT,
     URL,
+    IMAGE,
 }
 
 /**
