@@ -92,11 +92,19 @@ private fun OpentomacApp() {
             }
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val permission = rememberLauncherForActivityResult(
-                ActivityResultContracts.RequestPermission(),
-            ) {}
-            LaunchedEffect(Unit) { permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
+        val permissions = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions(),
+        ) {}
+        LaunchedEffect(Unit) {
+            val wanted = buildList {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    add(Manifest.permission.POST_NOTIFICATIONS)
+                    add(Manifest.permission.READ_MEDIA_IMAGES)
+                } else {
+                    add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                }
+            }
+            permissions.launch(wanted.toTypedArray())
         }
 
         Scaffold(
@@ -150,6 +158,9 @@ private fun DashboardScreen(
         Button(onClick = onPair) { Text("Pair") }
     }
 
+    Spacer(Modifier.height(8.dp))
+    NotificationAccessRow()
+
     if (transfers.isNotEmpty()) {
         Spacer(Modifier.height(16.dp))
         Text("Transfers", style = MaterialTheme.typography.titleSmall)
@@ -171,6 +182,24 @@ private fun DashboardScreen(
                 DeviceCard(device, onConnect = { onConnect(device) }, onForget = { onForget(device) })
             }
         }
+    }
+}
+
+@Composable
+private fun NotificationAccessRow() {
+    val context = LocalContext.current
+    val enabled = remember {
+        androidx.core.app.NotificationManagerCompat
+            .getEnabledListenerPackages(context)
+            .contains(context.packageName)
+    }
+    if (!enabled) {
+        OutlinedButton(onClick = {
+            context.startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }) { Text("Enable notification mirroring") }
     }
 }
 

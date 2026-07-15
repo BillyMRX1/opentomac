@@ -5,12 +5,14 @@ import OpentomacShared
 struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showPairing = false
+    @State private var showPhotos = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("opentomac").font(.largeTitle.bold())
                 Spacer()
+                Button("Photos") { showPhotos = true }
                 Button("Pair device") {
                     model.startHosting()
                     showPairing = true
@@ -73,6 +75,10 @@ struct DashboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .sheet(isPresented: $showPairing) {
             PairingSheet(isPresented: $showPairing)
+                .environmentObject(model)
+        }
+        .sheet(isPresented: $showPhotos) {
+            PhotosView(isPresented: $showPhotos)
                 .environmentObject(model)
         }
     }

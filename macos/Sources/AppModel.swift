@@ -11,9 +11,11 @@ final class AppModel: ObservableObject {
     @Published var devices: [TrustedDevice] = []
     @Published var lastNotification: String?
     @Published var transfers: [MacTransfer] = []
+    @Published var photos: [MacPhoto] = []
     let protocolVersion: Int32
 
     private var controller: MacController!
+    private let notifier = NotificationBridge()
 
     init() {
         protocolVersion = ProtocolCodec.shared.PROTOCOL_VERSION
@@ -27,14 +29,32 @@ final class AppModel: ObservableObject {
             onDevices: { [weak self] devices in
                 Task { @MainActor in self?.devices = devices }
             },
-            onNotification: { [weak self] title, body, _ in
-                Task { @MainActor in self?.lastNotification = "\(title) — \(body)" }
+            onNotification: { [weak self] title, body, key, replyIndex in
+                Task { @MainActor in
+                    self?.lastNotification = "\(title) — \(body)"
+                    self?.notifier.present(title: title, body: body, key: key, replyIndex: Int(replyIndex))
+                }
             },
             onTransfers: { [weak self] items in
                 Task { @MainActor in self?.transfers = items }
+            },
+            onPhotos: { [weak self] items in
+                Task { @MainActor in self?.photos = items }
             }
         )
+        notifier.start { [weak self] key, actionIndex, text in
+            self?.controller.replyToNotification(key: key, actionIndex: Int32(actionIndex), text: text)
+        }
         controller.start()
+    }
+
+    func loadPhotos() { controller.loadPhotos() }
+
+    func requestThumbnail(_ id: String, completion: @escaping (Data?) -> Void) {
+        controller.requestThumbnail(id: id) { base64 in
+            let data = base64.flatMap { Data(base64Encoded: $0) }
+            Task { @MainActor in completion(data) }
+        }
     }
 
     func sendFile() {

@@ -2,6 +2,7 @@ package dev.opentomac.shared.mac
 
 import dev.opentomac.shared.clipboard.ClipboardSync
 import dev.opentomac.shared.crypto.Identity
+import dev.opentomac.shared.media.MediaCompanionBrowser
 import dev.opentomac.shared.notifications.NotificationCompanion
 import dev.opentomac.shared.notifications.NotificationPresenter
 import dev.opentomac.shared.pairing.PairingManager
@@ -33,6 +34,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlin.concurrent.Volatile
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 import okio.FileSystem
 import okio.Path.Companion.toPath
 import platform.Foundation.NSHomeDirectory
@@ -54,19 +57,26 @@ data class MacTransfer(
     val percent: Int,
 )
 
+/** One browsable phone photo, for the Swift grid. */
+data class MacPhoto(
+    val id: String,
+    val name: String,
+)
+
 /**
  * Kotlin orchestrator for the macOS app. It owns the identity, trust store, session,
  * and feature engines, keeping all coroutine, Flow, and suspend interaction in Kotlin
  * and exposing a plain callback API to SwiftUI. Callbacks may fire on a background
  * thread; the Swift layer marshals them to the main queue.
  */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, ExperimentalEncodingApi::class)
 class MacController(
     private val onState: (String) -> Unit,
     private val onPairing: (MacPairingState) -> Unit,
     private val onDevices: (List<TrustedDevice>) -> Unit,
-    private val onNotification: (String, String, String) -> Unit,
+    private val onNotification: (String, String, String, Int) -> Unit,
     private val onTransfers: (List<MacTransfer>) -> Unit,
+    private val onPhotos: (List<MacPhoto>) -> Unit,
 ) {
     private val collectedJobs = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -80,6 +90,7 @@ class MacController(
     private lateinit var clipboardSync: ClipboardSync
     private lateinit var transferEngine: TransferEngine
     private lateinit var notifications: NotificationCompanion
+    private lateinit var mediaBrowser: MediaCompanionBrowser
     private val transportFactory = ConfigurableTransportFactory()
 
     private var pendingPairing: PendingPairing? = null
@@ -121,13 +132,16 @@ class MacController(
             notifications = NotificationCompanion(
                 presenter = object : NotificationPresenter {
                     override suspend fun present(posted: NotificationPosted) {
-                        onNotification(posted.appName + ": " + posted.title, posted.body, posted.key)
+                        val replyIndex = posted.actions.firstOrNull { it.isRemoteInput }?.index ?: -1
+                        val title = if (posted.title.isBlank()) posted.appName else "${posted.appName}: ${posted.title}"
+                        onNotification(title, posted.body, posted.key, replyIndex)
                     }
 
                     override suspend fun withdraw(key: String) {}
                 },
                 send = { safeSend(ChannelId.EVENT, it) },
             )
+            mediaBrowser = MediaCompanionBrowser(send = { safeSend(ChannelId.CONTROL, it) })
 
             sessionManager.registerHandler(ChannelId.EVENT) { envelope ->
                 when (val message = envelope.payload) {
@@ -140,6 +154,7 @@ class MacController(
             }
             sessionManager.registerHandler(ChannelId.BULK) { envelope ->
                 transferEngine.onMessage(envelope.payload)
+                mediaBrowser.onMessage(envelope.payload)
             }
 
             clipboardSync.start(scope)
@@ -302,6 +317,27 @@ class MacController(
             if (sources.isNotEmpty() && sessionManager.state.value is ConnectionState.Connected) {
                 transferEngine.offer(sources)
             }
+        }
+    }
+
+    /** Sends an inline reply back to a mirrored phone notification. */
+    fun replyToNotification(key: String, actionIndex: Int, text: String) {
+        scope.launch { notifications.sendAction(key, actionIndex, text) }
+    }
+
+    /** Requests the first page of phone photos; results arrive via the photos callback. */
+    fun loadPhotos() {
+        scope.launch {
+            runCatching { mediaBrowser.requestPage("images", 0, 60) }
+                .onSuccess { response -> onPhotos(response.items.map { MacPhoto(it.mediaId, it.name) }) }
+        }
+    }
+
+    /** Requests one photo thumbnail; [onResult] receives base64 JPEG/PNG bytes or null. */
+    fun requestThumbnail(id: String, onResult: (String?) -> Unit) {
+        scope.launch {
+            val bytes = runCatching { mediaBrowser.thumbnail(id) }.getOrNull()
+            onResult(bytes?.takeIf { it.isNotEmpty() }?.let { Base64.encode(it) })
         }
     }
 
