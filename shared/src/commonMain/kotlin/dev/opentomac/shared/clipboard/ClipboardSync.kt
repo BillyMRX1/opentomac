@@ -104,6 +104,7 @@ class ClipboardSync(
 
     private val lastSeenSequenceByOrigin = mutableMapOf<String, Long>()
     private var lastAppliedRemoteHash: ByteArray? = null
+    private var lastLocalHash: ByteArray? = null
     private var nextSequence = 0L
     private var collectionJob: Job? = null
 
@@ -151,6 +152,9 @@ class ClipboardSync(
     private suspend fun onLocalItem(item: ClipItem) {
         if (paused.value || item.sensitive) return
         if (lastAppliedRemoteHash?.contentEquals(item.contentHash) == true) return
+        // Re-reading the same clipboard (e.g. on every app foreground) must not resend it.
+        if (lastLocalHash?.contentEquals(item.contentHash) == true) return
+        lastLocalHash = item.contentHash.copyOf()
 
         val sequence = ++nextSequence
         val message = ClipboardItemMsg(

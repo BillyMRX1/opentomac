@@ -74,9 +74,14 @@ class AndroidClipboard(private val context: Context) : LocalClipboard {
     }
 
     private fun foregroundResumes(): Flow<ClipItem> = callbackFlow {
+        // ON_RESUME (not ON_START) so the app already holds window focus; Android 10+
+        // denies clipboard reads until then. A short settle delay covers focus races.
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_START) {
-                launch { currentItem()?.let { trySend(it) } }
+            if (event == Lifecycle.Event.ON_RESUME) {
+                launch {
+                    kotlinx.coroutines.delay(250)
+                    currentItem()?.let { trySend(it) }
+                }
             }
         }
         withContext(Dispatchers.Main) { ProcessLifecycleOwner.get().lifecycle.addObserver(observer) }
