@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,6 +46,13 @@ import dev.opentomac.android.runtime.AppRuntime
 import dev.opentomac.android.service.ConnectionService
 import dev.opentomac.shared.pairing.TrustedDevice
 import dev.opentomac.shared.session.ConnectionState
+import dev.opentomac.shared.transfer.TransferDirection
+import dev.opentomac.shared.transfer.TransferJob
+import dev.opentomac.shared.transfer.TransferState
+import android.net.Uri
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.platform.LocalContext
+import java.io.File
 import kotlinx.coroutines.launch
 
 /** Single-activity host for the dashboard and pairing screens. */
@@ -72,6 +80,7 @@ private enum class Screen { DASHBOARD, PAIR }
 private fun OpentomacApp() {
     MaterialTheme {
         val scope = rememberCoroutineScope()
+        val context = LocalContext.current
         val snackbar = remember { SnackbarHostState() }
         var screen by remember { mutableStateOf(Screen.DASHBOARD) }
 
@@ -101,6 +110,7 @@ private fun OpentomacApp() {
                         onSendClipboard = { scope.launch { AppRuntime.sendClipboard() } },
                         onConnect = { device -> scope.launch { AppRuntime.connect(device) } },
                         onForget = { device -> scope.launch { AppRuntime.forget(device) } },
+                        onSendFiles = { uris -> scope.launch { AppRuntime.enqueueSharedUris(context, uris) } },
                     )
                     Screen.PAIR -> PairScreen(onDone = { screen = Screen.DASHBOARD })
                 }
@@ -115,9 +125,15 @@ private fun DashboardScreen(
     onSendClipboard: () -> Unit,
     onConnect: (TrustedDevice) -> Unit,
     onForget: (TrustedDevice) -> Unit,
+    onSendFiles: (List<Uri>) -> Unit,
 ) {
     val state by AppRuntime.connectionState.collectAsStateWithLifecycle()
     val devices by AppRuntime.pairedDevices.collectAsStateWithLifecycle()
+    val transfers by AppRuntime.transfers.collectAsStateWithLifecycle()
+
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris -> if (uris.isNotEmpty()) onSendFiles(uris) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -130,7 +146,18 @@ private fun DashboardScreen(
     Spacer(Modifier.height(16.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Button(onClick = onSendClipboard) { Text("Send clipboard") }
-        Button(onClick = onPair) { Text("Pair new device") }
+        Button(onClick = { filePicker.launch(arrayOf("*/*")) }) { Text("Send file") }
+        Button(onClick = onPair) { Text("Pair") }
+    }
+
+    if (transfers.isNotEmpty()) {
+        Spacer(Modifier.height(16.dp))
+        Text("Transfers", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(8.dp))
+        transfers.sortedByDescending { it.jobId }.take(8).forEach { job ->
+            TransferRow(job)
+            Spacer(Modifier.height(8.dp))
+        }
     }
 
     Spacer(Modifier.height(16.dp))
@@ -145,6 +172,52 @@ private fun DashboardScreen(
             }
         }
     }
+}
+
+@Composable
+private fun TransferRow(job: TransferJob) {
+    val progress by job.progress.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val name = job.files.firstOrNull()?.name ?: "files"
+    val label = if (job.direction == TransferDirection.RECEIVE) "Received" else "Sent"
+    val pct = if (progress.totalBytes > 0) {
+        (progress.completedBytes * 100 / progress.totalBytes).toInt()
+    } else {
+        0
+    }
+    val done = progress.state == TransferState.DONE
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("$label: $name", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "${progress.state.name.lowercase().replaceFirstChar { it.uppercase() }} · $pct%",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (!progress.state.let { it == TransferState.DONE || it == TransferState.FAILED || it == TransferState.CANCELLED }) {
+                Spacer(Modifier.height(6.dp))
+                LinearProgressIndicator(
+                    progress = { pct / 100f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (done && job.direction == TransferDirection.RECEIVE) {
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(onClick = { openReceived(context, name) }) { Text("Open") }
+            }
+        }
+    }
+}
+
+private fun openReceived(context: android.content.Context, name: String) {
+    val dir = AppRuntime.receiveDirectoryFile() ?: return
+    val file = File(dir, name)
+    if (!file.exists()) return
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, context.contentResolver.getType(uri) ?: "*/*")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }
 }
 
 @Composable

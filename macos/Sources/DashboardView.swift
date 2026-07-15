@@ -42,14 +42,30 @@ struct DashboardView: View {
                 }
             }
 
-            Spacer()
-            Text("Drop files here to send")
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                    handleDrop(providers)
+            if !model.transfers.isEmpty {
+                Divider()
+                HStack {
+                    Text("Transfers").font(.headline)
+                    Spacer()
+                    Button("Show received") { model.revealReceived() }
                 }
+                ForEach(model.transfers, id: \.id) { transfer in
+                    TransferRow(transfer: transfer)
+                }
+            }
+
+            Spacer()
+            HStack {
+                Text("Drop files here to send")
+                Spacer()
+                Button("Send file…") { model.sendFile() }
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+            .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                handleDrop(providers)
+            }
 
             Text("Protocol v\(model.protocolVersion)").font(.footnote).foregroundStyle(.tertiary)
         }
@@ -75,6 +91,25 @@ struct DashboardView: View {
             if !paths.isEmpty { model.sendFiles(paths) }
         }
         return true
+    }
+}
+
+private struct TransferRow: View {
+    let transfer: MacTransfer
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("\(transfer.isReceive ? "Received" : "Sent"): \(transfer.name)")
+                    .font(.callout)
+                Spacer()
+                Text(transfer.state.capitalized).font(.caption).foregroundStyle(.secondary)
+            }
+            if !["DONE", "FAILED", "CANCELLED"].contains(transfer.state) {
+                ProgressView(value: Double(transfer.percent) / 100.0)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

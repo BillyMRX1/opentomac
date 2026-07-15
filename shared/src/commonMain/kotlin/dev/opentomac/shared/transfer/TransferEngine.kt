@@ -10,6 +10,9 @@ import dev.opentomac.shared.protocol.FileDone
 import dev.opentomac.shared.protocol.FileMeta
 import dev.opentomac.shared.protocol.FileOffer
 import dev.opentomac.shared.protocol.FileOfferReply
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import dev.opentomac.shared.protocol.FrameCodec
 import dev.opentomac.shared.protocol.Message
 import kotlinx.coroutines.CancellationException
@@ -70,6 +73,16 @@ class TransferEngine(
     private val receives = mutableMapOf<String, ReceiveTransfer>()
     private var nextJobNumber = 0L
 
+    private val mutableTransfers = MutableStateFlow<List<TransferJob>>(emptyList())
+
+    /** All send and receive jobs seen this session, oldest first, for progress and history UI. */
+    val transfers: StateFlow<List<TransferJob>> = mutableTransfers.asStateFlow()
+
+    private fun trackJob(job: TransferJob) {
+        jobs[job.jobId] = job
+        mutableTransfers.value = jobs.values.toList()
+    }
+
     suspend fun offer(
         files: List<SourceFile>,
         jobId: String = "transfer-${clock.nowMs()}-${nextJobNumber++}",
@@ -80,7 +93,7 @@ class TransferEngine(
             require(source.meta.sizeBytes >= 0) { "File size must not be negative: ${source.meta.name}" }
         }
         val job = TransferJob(jobId, TransferDirection.SEND, files.map { it.meta }, clock)
-        jobs[jobId] = job
+        trackJob(job)
         sends[jobId] = SendTransfer(job, files)
         outbound(FileOffer(jobId, job.files))
         return job
@@ -172,7 +185,7 @@ class TransferEngine(
             decision.perFilePolicy.none { it == DuplicatePolicy.ASK }
         val accepted = decision.accepted && validPolicies
         val job = TransferJob(offer.jobId, TransferDirection.RECEIVE, offer.files, clock)
-        jobs[offer.jobId] = job
+        trackJob(job)
         if (!accepted) {
             job.fail(if (decision.accepted) "unresolved duplicate policy" else "declined")
             outbound(FileOfferReply(offer.jobId, accepted = false))

@@ -22,6 +22,7 @@ import dev.opentomac.shared.session.SessionManager
 import dev.opentomac.shared.session.TransportFactory
 import dev.opentomac.shared.transfer.OfferDecision
 import dev.opentomac.shared.transfer.SourceFile
+import dev.opentomac.shared.transfer.TransferDirection
 import dev.opentomac.shared.transfer.TransferEngine
 import dev.opentomac.shared.transport.TcpServer
 import dev.opentomac.shared.transport.TcpTransportFactory
@@ -44,6 +45,15 @@ data class MacPairingState(
     val message: String? = null,
 )
 
+/** One send or receive transfer, flattened for the Swift UI. */
+data class MacTransfer(
+    val id: String,
+    val name: String,
+    val isReceive: Boolean,
+    val state: String,
+    val percent: Int,
+)
+
 /**
  * Kotlin orchestrator for the macOS app. It owns the identity, trust store, session,
  * and feature engines, keeping all coroutine, Flow, and suspend interaction in Kotlin
@@ -56,7 +66,9 @@ class MacController(
     private val onPairing: (MacPairingState) -> Unit,
     private val onDevices: (List<TrustedDevice>) -> Unit,
     private val onNotification: (String, String, String) -> Unit,
+    private val onTransfers: (List<MacTransfer>) -> Unit,
 ) {
+    private val collectedJobs = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val port = 42_420
 
@@ -135,9 +147,42 @@ class MacController(
             scope.launch {
                 sessionManager.state.collect { onState(it.describe()) }
             }
+            observeTransfers()
             startAcceptLoop()
         }
     }
+
+    private fun observeTransfers() {
+        scope.launch {
+            transferEngine.transfers.collect { list ->
+                list.forEach { job ->
+                    if (collectedJobs.add(job.jobId)) {
+                        scope.launch { job.progress.collect { pushTransfers() } }
+                    }
+                }
+                pushTransfers()
+            }
+        }
+    }
+
+    private fun pushTransfers() {
+        onTransfers(
+            transferEngine.transfers.value.map { job ->
+                val p = job.progress.value
+                val percent = if (p.totalBytes > 0) (p.completedBytes * 100 / p.totalBytes).toInt() else 0
+                MacTransfer(
+                    id = job.jobId,
+                    name = job.files.firstOrNull()?.name ?: "files",
+                    isReceive = job.direction == TransferDirection.RECEIVE,
+                    state = p.state.name,
+                    percent = percent,
+                )
+            },
+        )
+    }
+
+    /** Absolute path of the folder where received files are saved. */
+    fun receiveDirectoryPath(): String = "${NSHomeDirectory()}/Downloads/opentomac"
 
     /**
      * One persistent listener serves both roles: an armed pairing (via [startHosting])

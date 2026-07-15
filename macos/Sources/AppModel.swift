@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import OpentomacShared
 
 /// Bridges the Kotlin `MacController` to SwiftUI. All controller callbacks are
@@ -9,6 +10,7 @@ final class AppModel: ObservableObject {
     @Published var pairing: MacPairingState?
     @Published var devices: [TrustedDevice] = []
     @Published var lastNotification: String?
+    @Published var transfers: [MacTransfer] = []
     let protocolVersion: Int32
 
     private var controller: MacController!
@@ -27,9 +29,27 @@ final class AppModel: ObservableObject {
             },
             onNotification: { [weak self] title, body, _ in
                 Task { @MainActor in self?.lastNotification = "\(title) — \(body)" }
+            },
+            onTransfers: { [weak self] items in
+                Task { @MainActor in self?.transfers = items }
             }
         )
         controller.start()
+    }
+
+    func sendFile() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        if panel.runModal() == .OK {
+            controller.sendFiles(paths: panel.urls.map(\.path))
+        }
+    }
+
+    func revealReceived() {
+        let path = controller.receiveDirectoryPath()
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
     }
 
     func startHosting() { controller.startHosting() }

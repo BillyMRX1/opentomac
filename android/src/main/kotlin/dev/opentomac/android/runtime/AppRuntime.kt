@@ -38,6 +38,7 @@ import dev.opentomac.shared.session.TransportFactory
 import dev.opentomac.shared.transfer.OfferDecision
 import dev.opentomac.shared.transfer.SourceFile
 import dev.opentomac.shared.transfer.TransferEngine
+import dev.opentomac.shared.transfer.TransferJob
 import dev.opentomac.shared.transport.TcpServer
 import dev.opentomac.shared.transport.TcpTransportFactory
 import kotlinx.coroutines.CoroutineScope
@@ -102,6 +103,14 @@ object AppRuntime {
     private val mutableMediaItems = MutableStateFlow<List<MediaItem>>(emptyList())
     val mediaItems: StateFlow<List<MediaItem>> = mutableMediaItems.asStateFlow()
 
+    private val mutableTransfers = MutableStateFlow<List<TransferJob>>(emptyList())
+    val transfers: StateFlow<List<TransferJob>> = mutableTransfers.asStateFlow()
+
+    private var receiveDir: File? = null
+
+    /** Absolute directory where received files land, for opening them from the UI. */
+    fun receiveDirectoryFile(): File? = receiveDir
+
     suspend fun initialize(context: Context, ownerScope: CoroutineScope) {
         initMutex.withLock {
             if (initialized) return
@@ -128,6 +137,7 @@ object AppRuntime {
                 clock = SystemClock,
                 historyLimit = 20,
             ).also { clipboardSync = it }
+            receiveDir = receiveDirectory(appContext)
             val transfer = TransferEngine(
                 destinationDir = receiveDirectory(appContext).absolutePath.toPath(),
                 destinationFileSystem = FileSystem.SYSTEM,
@@ -163,6 +173,7 @@ object AppRuntime {
             }
             sync.start(ownerScope)
             notifications.start(ownerScope)
+            ownerScope.launch { transfer.transfers.collect { mutableTransfers.value = it } }
             refreshDevices()
             ownerScope.launch {
                 session.state.collect { state ->
