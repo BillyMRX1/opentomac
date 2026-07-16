@@ -301,6 +301,12 @@ data class FileCancel(
 // --- Media browsing ---
 
 @Serializable
+@SerialName("media_fetch_request")
+data class MediaFetchRequest(
+    @ProtoNumber(1) val mediaId: String,
+) : Message
+
+@Serializable
 data class MediaItem(
     @ProtoNumber(1) val mediaId: String,
     @ProtoNumber(2) val name: String,

@@ -50,6 +50,8 @@ final class AppModel: ObservableObject {
 
     func loadPhotos() { controller.loadPhotos() }
 
+    func importPhoto(_ id: String) { controller.importPhoto(id: id) }
+
     func requestThumbnail(_ id: String, completion: @escaping (Data?) -> Void) {
         controller.requestThumbnail(id: id) { base64 in
             let data = base64.flatMap { Data(base64Encoded: $0) }

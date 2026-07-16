@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import dev.opentomac.android.platform.AndroidClipboard
 import dev.opentomac.android.platform.AndroidKeyValueStore
@@ -158,9 +159,30 @@ object AppRuntime {
                 ownPackageId = appContext.packageName,
             ).also { notificationAgent = it }
             val androidMedia = AndroidMediaSource(appContext).also { mediaSource = it }
-            val media = MediaAgent(androidMedia) {
-                safeSend(ChannelId.BULK, it)
-            }.also { mediaAgent = it }
+            val media = MediaAgent(
+                source = androidMedia,
+                send = { safeSend(ChannelId.BULK, it) },
+                // Detached so staging a large original never stalls the session dispatch
+                // loop (heartbeats and transfer replies arrive on the same loop).
+                fetch = { mediaId ->
+                    ownerScope.launch {
+                        runCatchingAction("Could not import photo") {
+                            val uri = Uri.parse(mediaId)
+                            // The peer is authenticated but the URI is wire-supplied: only
+                            // MediaStore content is fetchable, never arbitrary providers.
+                            require(uri.scheme == "content" && uri.authority == MediaStore.AUTHORITY) {
+                                "Refused non-MediaStore photo request"
+                            }
+                            val sourceFile = withContext(Dispatchers.IO) {
+                                requireNotNull(stageUri(appContext, uri)) {
+                                    "Could not read the selected photo"
+                                }
+                            }
+                            transfer.offer(listOf(sourceFile))
+                        }
+                    }
+                },
+            ).also { mediaAgent = it }
 
             session.registerHandler(ChannelId.EVENT) { envelope ->
                 when (val message = envelope.payload) {
@@ -428,14 +450,11 @@ object AppRuntime {
     private fun stageUri(context: Context, uri: Uri): SourceFile? {
         val resolver = context.contentResolver
         var displayName = "shared-${System.currentTimeMillis()}"
-        var declaredSize = -1L
-        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
+        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
             ?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
                     if (nameIndex >= 0) displayName = cursor.getString(nameIndex) ?: displayName
-                    if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) declaredSize = cursor.getLong(sizeIndex)
                 }
             }
         val safeName = displayName.replace(Regex("[^A-Za-z0-9._ -]"), "_").take(120)
@@ -450,7 +469,9 @@ object AppRuntime {
             fileSystem = FileSystem.SYSTEM,
             meta = FileMeta(
                 name = displayName,
-                sizeBytes = if (declaredSize >= 0) declaredSize else target.length(),
+                // The staged copy is authoritative: a stale provider-declared size would
+                // make the transfer engine truncate or under-read the snapshot.
+                sizeBytes = target.length(),
                 mimeType = mime,
             ),
         )

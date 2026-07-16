@@ -40,9 +40,10 @@ private struct ThumbnailCell: View {
     @EnvironmentObject private var model: AppModel
     let photo: MacPhoto
     @State private var image: NSImage?
+    @State private var isHovering = false
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topTrailing) {
             RoundedRectangle(cornerRadius: 8).fill(.quaternary)
             if let image {
                 Image(nsImage: image)
@@ -52,9 +53,31 @@ private struct ThumbnailCell: View {
             } else {
                 ProgressView()
             }
+            if isHovering {
+                Button {
+                    model.importPhoto(photo.id)
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .background(
+                    Color(nsColor: .windowBackgroundColor).opacity(0.9),
+                    in: RoundedRectangle(cornerRadius: 6)
+                )
+                .padding(6)
+                .accessibilityLabel("Import original \(photo.name)")
+            }
         }
         .frame(height: 110)
         .clipped()
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onHover { isHovering = $0 }
+        .contextMenu {
+            Button("Import original") {
+                model.importPhoto(photo.id)
+            }
+        }
         .onAppear {
             guard image == nil else { return }
             model.requestThumbnail(photo.id) { data in

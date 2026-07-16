@@ -15,6 +15,7 @@ import dev.opentomac.shared.protocol.ChannelId
 import dev.opentomac.shared.protocol.ClipboardItemMsg
 import dev.opentomac.shared.protocol.DuplicatePolicy
 import dev.opentomac.shared.protocol.FileMeta
+import dev.opentomac.shared.protocol.MediaFetchRequest
 import dev.opentomac.shared.protocol.Message
 import dev.opentomac.shared.protocol.NotificationPosted
 import dev.opentomac.shared.protocol.RevokeDevice
@@ -339,6 +340,11 @@ class MacController(
             val bytes = runCatching { mediaBrowser.thumbnail(id) }.getOrNull()
             onResult(bytes?.takeIf { it.isNotEmpty() }?.let { Base64.encode(it) })
         }
+    }
+
+    /** Requests the original phone photo; it arrives through the normal transfer pipeline. */
+    fun importPhoto(id: String) {
+        scope.launch { safeSend(ChannelId.BULK, MediaFetchRequest(id)) }
     }
 
     fun diagnostics(): String {

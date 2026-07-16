@@ -2,6 +2,7 @@
 
 package dev.opentomac.shared.media
 
+import dev.opentomac.shared.protocol.MediaFetchRequest
 import dev.opentomac.shared.protocol.MediaItem
 import dev.opentomac.shared.protocol.MediaListRequest
 import dev.opentomac.shared.protocol.MediaListResponse
@@ -55,6 +56,21 @@ class MediaBrowserTest {
         val response = assertIs<ThumbnailResponse>(sent.single())
         assertEquals("missing", response.mediaId)
         assertTrue(response.jpegBytes.isEmpty())
+    }
+
+    @Test
+    fun agentDispatchesMediaFetchRequestsAndIgnoresOtherMessages() = runTest {
+        val fetched = mutableListOf<String>()
+        val agent = MediaAgent(
+            source = FakeMediaSource(),
+            send = {},
+            fetch = fetched::add,
+        )
+
+        agent.onMessage(MediaFetchRequest("content://media/external/images/media/42"))
+        agent.onMessage(ThumbnailResponse("ignored", byteArrayOf(1)))
+
+        assertEquals(listOf("content://media/external/images/media/42"), fetched)
     }
 
     @Test

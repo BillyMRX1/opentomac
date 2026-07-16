@@ -163,6 +163,12 @@ class MessagesTest {
     }
 
     @Test
+    fun mediaFetchRequestRoundTrip() {
+        val msg = MediaFetchRequest(mediaId = "content://media/external/images/media/42")
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.BULK))
+    }
+
+    @Test
     fun mediaListRequestRoundTrip() {
         val msg = MediaListRequest(bucket = "Camera", page = 3, pageSize = 50)
         assertEquals(msg, roundTrip(msg))

@@ -1,5 +1,6 @@
 package dev.opentomac.shared.media
 
+import dev.opentomac.shared.protocol.MediaFetchRequest
 import dev.opentomac.shared.protocol.MediaItem
 import dev.opentomac.shared.protocol.MediaListRequest
 import dev.opentomac.shared.protocol.MediaListResponse
@@ -29,6 +30,7 @@ interface MediaSource {
 class MediaAgent(
     private val source: MediaSource,
     private val send: suspend (Message) -> Unit,
+    private val fetch: suspend (mediaId: String) -> Unit = {},
 ) {
     suspend fun onMessage(msg: Message) {
         when (msg) {
@@ -49,6 +51,8 @@ class MediaAgent(
                 val jpegBytes = source.thumbnail(msg.mediaId) ?: ByteArray(0)
                 send(ThumbnailResponse(msg.mediaId, jpegBytes))
             }
+
+            is MediaFetchRequest -> fetch(msg.mediaId)
 
             else -> Unit
         }
