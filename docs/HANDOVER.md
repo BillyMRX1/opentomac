@@ -52,7 +52,8 @@ A Kotlin Multiplatform `shared` module (targets: android, jvm for tests, macosAr
 ## Known limits and open items
 
 - Phone-side auto clipboard sync only fires when the app foregrounds (Android OS restriction; user accepted). MIUI may be extra restrictive.
-- Photos grid is browse-only: photo IMPORT (pull originals to Mac, likely via the transfer engine plus a new request message) is the natural next small feature.
+- Staged outbox files (cache/outbox on Android) have no deletion lifecycle in TransferEngine; repeated sends/imports accumulate cache until the OS evicts it. Known, shared by all send paths, accepted for now.
+- Photo import is fire-and-forget: no fetch ack message; the arriving FileOffer is the feedback. Accepted MVP trade-off (adversarial review suggested a correlated response if this ever bites).
 - macOS Mac clipboard TIFF-only image sources not synced (see above).
 - Mac side stores keys in Application Support files, not Keychain (documented MVP simplification in MacKeyValueStore).
 - Cross-device E2E has been user-tested manually; there is no automated two-app integration test.
@@ -60,7 +61,7 @@ A Kotlin Multiplatform `shared` module (targets: android, jvm for tests, macosAr
 
 ## Suggested next steps (from the roadmap, in order)
 
-1. Photo import from the Mac grid (small, high value).
+1. DONE 2026-07-17: photo import from the Mac grid (media_fetch_request over BULK into the transfer pipeline). Needs device test.
 2. Phase B: URL handoff, media remote, contacts browse.
 3. Phase C: screen mirroring + remote control (large; MediaProjection + AccessibilityService on Android, VideoToolbox viewer on Mac).
 4. Phase D: virtual webcam/mic (prove the macOS system-extension distribution path first).
@@ -68,4 +69,4 @@ A Kotlin Multiplatform `shared` module (targets: android, jvm for tests, macosAr
 
 ## Task state
 
-All 13 implementation-plan tasks completed. Roadmap Phase A (A1 file UI, A2 notifications, A3 photos grid) completed. FINDINGS F3 (photos grid rate limit) fixed on 2026-07-17 pending device retest; F2 has diagnostics in place awaiting a logcat capture from the user; F4 (notification mirroring) still needs the user's end-to-end test. Both apps rebuilt and verified after the fixes.
+All 13 implementation-plan tasks completed. Roadmap Phase A (A1 file UI, A2 notifications, A3 photos grid) completed. FINDINGS F3 (photos grid rate limit) fixed on 2026-07-17 pending device retest; F2 has diagnostics in place awaiting a logcat capture from the user; F4 (notification mirroring) still needs the user's end-to-end test. Photo import (roadmap next step 1) implemented on 2026-07-17, also pending device test. Both apps rebuilt and verified after every change.
