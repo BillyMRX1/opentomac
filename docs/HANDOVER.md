@@ -3,6 +3,8 @@
 Last updated: 2026-07-16
 Purpose: everything a fresh session needs to continue this project without re-reading the whole history.
 
+READ NEXT: `docs/FINDINGS.md` holds the latest on-device test results and three open items (photos-grid rate-limit bug with root cause identified, screenshot clipboard bug, notification mirroring verification). Start there; it defines the priority order for the next session.
+
 ## What this project is
 
 opentomac is an open-source, local-first Android-to-Mac continuity app (clipboard, files, photos, notifications over local Wi-Fi; no account, no cloud relay). It is a clean-room build from public-surface requirements of LinkMyMac/LinkMyDroid. Key docs, all in `docs/`:
