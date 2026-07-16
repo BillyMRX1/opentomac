@@ -20,25 +20,23 @@ Read this together with `docs/HANDOVER.md` before continuing work.
 
 Android 10+ forbids any backgrounded app from reading the clipboard. Sync fires on app foreground (ON_RESUME + 250 ms) and while the app is open; nothing can fire while the app is closed. The user labeled this "Failed" so it may be worth surfacing better in-app (a one-time explainer), but it is not fixable. Escape hatches: Send clipboard button, Quick Settings tile, share sheet, text-selection action.
 
-## F2. Screenshots land on the phone clipboard but never reach the Mac (BUG, open)
+## F2. Screenshots land on the phone clipboard but never reach the Mac (BUG, diagnostics shipped)
 
 Symptom: after taking a screenshot (which MIUI puts on the clipboard), opening opentomac does not sync it; presumably the manual button also fails.
 
 Leading hypothesis: the screenshot clip carries a content:// URI from the system screenshot provider that opentomac lacks permission to read. `AndroidClipboard.readClipItem` wraps the read in runCatching, so a SecurityException silently yields null and nothing is sent (by design, to protect the collect loop). Secondary hypothesis: MIUI's screenshot "clipboard" is a MIUI-side overlay, not the real primary clip.
 
-Next steps:
-1. Add a debug path: log (SessionLog or logcat) the exact exception in readImageForSend/openStream instead of discarding it, then reproduce with `adb logcat | grep -i opentomac`.
-2. Check what notice the Send clipboard button shows with a screenshot on the clipboard ("Clipboard is empty or unreadable" would confirm the read fails; "Could not send clipboard item" would point at the send).
-3. If it is URI permission: try `ClipData.Item.getUri` read via `contentResolver.openTypedAssetFileDescriptor`, or check whether the clip needs `android.permission.READ_MEDIA_IMAGES` granted (it is requested but the user may not have granted it), or whether MIUI needs its own clipboard permission toggle for the app.
+Diagnostics shipped 2026-07-17: every swallow point in `AndroidClipboard` (clip read, image read, stream open, MIME resolve, text coerce) now logs a warning with URI and cause under the `opentomac` tag. To reproduce and capture:
+1. Install the new APK, connect the phone over adb, run `adb logcat -s opentomac`.
+2. Take a screenshot, open opentomac, also try the Send clipboard button.
+3. The logged exception pinpoints the failure (SecurityException would confirm the URI-permission hypothesis; no log at all points at the MIUI overlay hypothesis).
+4. If it is URI permission: try `ClipData.Item.getUri` read via `contentResolver.openTypedAssetFileDescriptor`, or check whether the clip needs `android.permission.READ_MEDIA_IMAGES` granted (it is requested but the user may not have granted it), or whether MIUI needs its own clipboard permission toggle for the app.
 
-## F3. Photos grid: only ~10 thumbnails load, the rest spin forever (BUG, root cause identified)
+## F3. Photos grid: only ~10 thumbnails load, the rest spin forever (FIXED, needs device retest)
 
-The screenshot shows almost exactly 10 loaded thumbnails. The session manager rate-limits inbound CONTROL envelopes to `rpcRateLimitPerMinute = 10` (token bucket, burst 10) on the Android side. The Mac grid fires ~60 `ThumbnailRequest`s at once over CONTROL (`MacController` wires `MediaCompanionBrowser` sends to `safeSend(ChannelId.CONTROL, ...)`). The first ~10 requests consume the bucket; the rest are dropped by the phone (`droppedEnvelopes`), their `CompletableDeferred`s never complete, and the cells spin forever.
+Root cause: the Mac grid fired ~60 `ThumbnailRequest`s at once over CONTROL, and the Android session manager rate-limits inbound CONTROL to `rpcRateLimitPerMinute = 10` (token bucket, burst 10). Everything past the first burst was dropped (`droppedEnvelopes`), leaving `CompletableDeferred`s pending and cells spinning forever.
 
-Fix options for next session (pick one, plus a UI guard):
-1. Send media traffic (MediaListRequest/ThumbnailRequest) on the BULK channel instead of CONTROL; BULK is not rate-limited and the Android handler already routes BULK to `media.onMessage`. One-line change in `MacController` (and confirm Android replies stay on BULK, which they do). Simplest and consistent with "bulk data" semantics.
-2. Alternatively exempt media messages from the CONTROL rate limiter (like Heartbeat/HeartbeatAck), or raise the limit.
-Also worth adding: Mac-side concurrency cap (request thumbnails only for visible cells or ~8 in flight) and a timeout on `MediaCompanionBrowser` deferreds so cells fail visibly instead of spinning forever.
+Fixed 2026-07-17 (option 1 from the original analysis): media traffic now travels on BULK (one-line `MacController` change; responses already used BULK on both sides). `MediaCompanionBrowser` additionally got a 15 s per-request timeout applied to every waiter, an 8-request in-flight thumbnail cap (semaphore), cancellation-safe pending cleanup under NonCancellable, and completion ownership serialized under the state mutex. A Codex adversarial review drove the hardening round; the "late response satisfies a retry" finding was consciously accepted because responses are keyed by content-identifying keys (mediaId / bucket+page), so late data is still valid data. Covered by 15 MediaBrowserTest cases. Awaiting user retest on device: the full grid should now load, and any failed cell should stop spinning within ~15 s.
 
 ## F4. How to test notification mirroring (user asked; untested)
 
@@ -51,7 +49,7 @@ Known noise sources to ignore: opentomac's own foreground-service notification i
 
 ## Priority order for next session
 
-1. F3 photos rate-limit fix (root cause known, small change, big visible win).
-2. F2 screenshot clipboard investigation (needs logging first).
+1. DONE (2026-07-17): F3 photos rate-limit fix. Needs user device retest.
+2. F2 screenshot clipboard: diagnostics shipped; needs user repro with `adb logcat -s opentomac`, then the actual fix.
 3. F4 verify notification mirroring end to end including reply.
 4. Then continue the roadmap (photo import, Phase B).
