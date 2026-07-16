@@ -6,6 +6,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -96,7 +97,9 @@ class AndroidClipboard(context: Context) : LocalClipboard {
 
     // Never throws: one malformed clip or misbehaving content provider must not be able
     // to cancel the changes() collection and silently kill clipboard sync.
-    private suspend fun currentItem(): ClipItem? = runCatching { readClipItem() }.getOrNull()
+    private suspend fun currentItem(): ClipItem? = runCatching { readClipItem() }
+        .onFailure { logReadFailure("read current clipboard item", null, it) }
+        .getOrNull()
 
     private suspend fun readClipItem(): ClipItem? {
         val clip = withContext(Dispatchers.Main.immediate) { clipboard.primaryClip } ?: return null
@@ -107,12 +110,16 @@ class AndroidClipboard(context: Context) : LocalClipboard {
             // unreadable or oversized image yields null; never fall back to the
             // meaningless "content://..." URI text.
             val bytes = withContext(Dispatchers.IO) {
-                runCatching { readImageForSend(uri) }.getOrNull()
+                runCatching { readImageForSend(uri) }
+                    .onFailure { logReadFailure("read image for send", uri, it) }
+                    .getOrNull()
             } ?: return null
             return ClipItem.create(ClipType.IMAGE, bytes, sensitive = false)
         }
         val text = withContext(Dispatchers.Main.immediate) {
-            runCatching { item.coerceToText(appContext)?.toString() }.getOrNull()
+            runCatching { item.coerceToText(appContext)?.toString() }
+                .onFailure { logReadFailure("coerce clipboard item to text", uri, it) }
+                .getOrNull()
         }?.takeIf { it.isNotBlank() } ?: return null
         // coerceToText falls back to the URI string for non-text URIs; that is noise,
         // not user content (e.g. an image whose provider hid its MIME type).
@@ -126,6 +133,7 @@ class AndroidClipboard(context: Context) : LocalClipboard {
             if (description.getMimeType(i).startsWith("image/")) return true
         }
         return runCatching { appContext.contentResolver.getType(uri) }
+            .onFailure { logReadFailure("resolve clipboard URI MIME type", uri, it) }
             .getOrNull()?.startsWith("image/") == true
     }
 
@@ -177,7 +185,13 @@ class AndroidClipboard(context: Context) : LocalClipboard {
     }
 
     private fun openStream(uri: Uri) =
-        runCatching { appContext.contentResolver.openInputStream(uri) }.getOrNull()
+        runCatching { appContext.contentResolver.openInputStream(uri) }
+            .onFailure { logReadFailure("open clipboard URI stream", uri, it) }
+            .getOrNull()
+
+    private fun logReadFailure(operation: String, uri: Uri?, cause: Throwable) {
+        Log.w(LOG_TAG, "$operation failed (uri=${uri?.toString() ?: "unknown"})", cause)
+    }
 
     private fun imageClip(bytes: ByteArray): ClipData {
         val dir = File(appContext.cacheDir, "clipimg").apply { mkdirs() }
@@ -200,5 +214,6 @@ class AndroidClipboard(context: Context) : LocalClipboard {
         // Headroom under the 4 MiB wire frame limit (envelope + AEAD overhead).
         const val MAX_IMAGE_SEND_BYTES = 3 * 1024 * 1024
         const val MAX_IMAGE_DIMENSION = 2048
+        const val LOG_TAG = "opentomac"
     }
 }
