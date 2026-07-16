@@ -5,6 +5,7 @@ package dev.opentomac.shared.clipboard
 import dev.opentomac.shared.pairing.Clock
 import dev.opentomac.shared.protocol.ClipboardItemMsg
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.runCurrent
@@ -180,6 +181,106 @@ class ClipboardSyncTest {
         runCurrent()
 
         assertTrue(sent.isEmpty())
+    }
+
+    @Test
+    fun failedSendDoesNotSuppressRetryOfSameContent() = runTest {
+        val local = FakeLocalClipboard()
+        var failNext = true
+        val sent = mutableListOf<ClipboardItemMsg>()
+        val engine = ClipboardSync("A", local, { message ->
+            if (failNext) {
+                failNext = false
+                throw IllegalStateException("Not connected")
+            }
+            sent += message
+        }, FakeClock(), historyLimit = null)
+        engine.start(backgroundScope)
+
+        val item = clip("retry me")
+        local.copy(item)
+        runCurrent()
+        assertTrue(sent.isEmpty())
+
+        // Same content again (e.g. re-read on app foreground): must NOT be deduped away.
+        local.copy(item)
+        runCurrent()
+        assertEquals(1, sent.size)
+    }
+
+    @Test
+    fun sendNowBypassesDuplicateSuppression() = runTest {
+        val local = FakeLocalClipboard()
+        val sent = mutableListOf<ClipboardItemMsg>()
+        val engine = ClipboardSync("A", local, { sent += it }, FakeClock(), historyLimit = null)
+        engine.start(backgroundScope)
+
+        val item = clip("send twice")
+        local.copy(item)
+        runCurrent()
+        assertEquals(1, sent.size)
+
+        // Automatic path dedupes the repeat...
+        local.copy(item)
+        runCurrent()
+        assertEquals(1, sent.size)
+
+        // ...but an explicit user send always goes through.
+        assertTrue(engine.sendNow(item))
+        assertEquals(2, sent.size)
+    }
+
+    @Test
+    fun sendNowReportsFailureAndStaysRetryable() = runTest {
+        val local = FakeLocalClipboard()
+        var fail = true
+        val sent = mutableListOf<ClipboardItemMsg>()
+        val engine = ClipboardSync("A", local, { message ->
+            if (fail) throw IllegalStateException("offline")
+            sent += message
+        }, FakeClock(), historyLimit = null)
+
+        val item = clip("manual")
+        assertFalse(engine.sendNow(item))
+        assertTrue(sent.isEmpty())
+
+        fail = false
+        assertTrue(engine.sendNow(item))
+        assertEquals(1, sent.size)
+    }
+
+    @Test
+    fun concurrentAutoAndManualSendsReachWireInSequenceOrder() = runTest {
+        val local = FakeLocalClipboard()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var gateArmed = true
+        val wire = mutableListOf<ClipboardItemMsg>()
+        val engine = ClipboardSync("A", local, { message ->
+            if (gateArmed) {
+                gateArmed = false
+                gate.await() // first (automatic) send parks mid-transport
+            }
+            wire += message
+        }, FakeClock(), historyLimit = null)
+        engine.start(backgroundScope)
+
+        local.copy(clip("first"))
+        runCurrent() // auto send is now suspended inside the transport
+
+        val second = clip("second")
+        val manual = async { engine.sendNow(second) }
+        runCurrent()
+        // The manual send must be waiting, not overtaking the parked auto send.
+        assertTrue(wire.isEmpty())
+
+        gate.complete(Unit)
+        assertTrue(manual.await())
+        runCurrent()
+
+        assertEquals(2, wire.size)
+        // Wire order matches sequence order, strictly increasing, no duplicates.
+        assertEquals(wire.map { it.seq }, wire.map { it.seq }.sorted())
+        assertEquals(wire.map { it.seq }.distinct().size, wire.size)
     }
 }
 

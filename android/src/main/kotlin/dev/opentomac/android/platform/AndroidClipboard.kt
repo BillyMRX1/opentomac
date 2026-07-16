@@ -3,6 +3,8 @@ package dev.opentomac.android.platform
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
@@ -13,12 +15,12 @@ import dev.opentomac.shared.clipboard.ClipType
 import dev.opentomac.shared.clipboard.LocalClipboard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.charset.StandardCharsets
 
@@ -29,37 +31,39 @@ import java.nio.charset.StandardCharsets
  * copy made in another app syncs the moment you reopen opentomac). The Quick Settings
  * tile, share sheet, and text-selection action remain the background escape hatches.
  * Applying content received from the Mac works regardless of foreground state.
+ *
+ * Images larger than [MAX_IMAGE_SEND_BYTES] are downscaled to JPEG before sending so
+ * they always fit the wire frame limit; originals travel via file transfer instead.
  */
-class AndroidClipboard(private val context: Context) : LocalClipboard {
+class AndroidClipboard(context: Context) : LocalClipboard {
     private val appContext = context.applicationContext
     private val clipboard = appContext
         .getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    private val manualChanges = MutableSharedFlow<ClipItem>(extraBufferCapacity = 1)
 
-    override fun changes(): Flow<ClipItem> =
-        merge(platformChanges(), foregroundResumes(), manualChanges)
+    override fun changes(): Flow<ClipItem> = kotlinx.coroutines.flow.merge(
+        platformChanges(),
+        foregroundResumes(),
+    )
 
     override suspend fun apply(item: ClipItem) = withContext(Dispatchers.Main.immediate) {
         val clip = when (item.type) {
             ClipType.IMAGE -> imageClip(item.payload)
-            ClipType.URL -> ClipData.newRawUri("opentomac URL", Uri.parse(item.payload.toString(StandardCharsets.UTF_8)))
+            ClipType.URL -> ClipData.newRawUri(
+                "opentomac URL",
+                Uri.parse(item.payload.toString(StandardCharsets.UTF_8)),
+            )
             else -> ClipData.newPlainText("opentomac", item.payload.toString(StandardCharsets.UTF_8))
         }
         clipboard.setPrimaryClip(clip)
     }
 
-    suspend fun sendCurrent(): Boolean {
-        val item = currentItem() ?: return false
-        manualChanges.emit(item)
-        return true
-    }
+    /** Reads the current clipboard as a sendable item, or null when empty/unreadable. */
+    suspend fun readCurrent(): ClipItem? = currentItem()
 
-    suspend fun sendText(text: String): Boolean {
-        if (text.isBlank()) return false
-        val item = ClipItem.create(typeFor(text), text.toByteArray(), sensitive = false)
-        apply(item)
-        manualChanges.emit(item)
-        return true
+    /** Builds a text/URL item from explicit text (share sheet, text-selection action). */
+    suspend fun textItem(text: String): ClipItem? {
+        if (text.isBlank()) return null
+        return ClipItem.create(typeFor(text), text.toByteArray(), sensitive = false)
     }
 
     private fun platformChanges(): Flow<ClipItem> = callbackFlow {
@@ -79,7 +83,7 @@ class AndroidClipboard(private val context: Context) : LocalClipboard {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 launch {
-                    kotlinx.coroutines.delay(250)
+                    delay(250)
                     currentItem()?.let { trySend(it) }
                 }
             }
@@ -90,26 +94,90 @@ class AndroidClipboard(private val context: Context) : LocalClipboard {
         }
     }
 
-    private suspend fun currentItem(): ClipItem? = withContext(Dispatchers.Main.immediate) {
-        val clip = clipboard.primaryClip ?: return@withContext null
-        val item = clip.getItemAt(0) ?: return@withContext null
-        val imageBytes = readImage(clip, item)
-        if (imageBytes != null) {
-            return@withContext ClipItem.create(ClipType.IMAGE, imageBytes, sensitive = false)
+    // Never throws: one malformed clip or misbehaving content provider must not be able
+    // to cancel the changes() collection and silently kill clipboard sync.
+    private suspend fun currentItem(): ClipItem? = runCatching { readClipItem() }.getOrNull()
+
+    private suspend fun readClipItem(): ClipItem? {
+        val clip = withContext(Dispatchers.Main.immediate) { clipboard.primaryClip } ?: return null
+        val item = clip.getItemAt(0) ?: return null
+        val uri = item.uri
+        if (uri != null && isImage(clip, uri)) {
+            // Image clip: read + fit under the frame limit off the main thread. An
+            // unreadable or oversized image yields null; never fall back to the
+            // meaningless "content://..." URI text.
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { readImageForSend(uri) }.getOrNull()
+            } ?: return null
+            return ClipItem.create(ClipType.IMAGE, bytes, sensitive = false)
         }
-        val text = runCatching { item.coerceToText(appContext)?.toString() }
-            .getOrNull()?.takeIf { it.isNotBlank() } ?: return@withContext null
-        ClipItem.create(typeFor(text), text.toByteArray(), sensitive = false)
+        val text = withContext(Dispatchers.Main.immediate) {
+            runCatching { item.coerceToText(appContext)?.toString() }.getOrNull()
+        }?.takeIf { it.isNotBlank() } ?: return null
+        // coerceToText falls back to the URI string for non-text URIs; that is noise,
+        // not user content (e.g. an image whose provider hid its MIME type).
+        if (uri != null && text == uri.toString()) return null
+        return ClipItem.create(typeFor(text), text.toByteArray(), sensitive = false)
     }
 
-    private fun readImage(clip: ClipData, item: ClipData.Item): ByteArray? {
-        val uri = item.uri ?: return null
-        val mime = clip.description.getMimeType(0) ?: appContext.contentResolver.getType(uri)
-        if (mime?.startsWith("image/") != true) return null
-        return runCatching {
-            appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        }.getOrNull()
+    private fun isImage(clip: ClipData, uri: Uri): Boolean {
+        val description = clip.description
+        for (i in 0 until description.mimeTypeCount) {
+            if (description.getMimeType(i).startsWith("image/")) return true
+        }
+        return runCatching { appContext.contentResolver.getType(uri) }
+            .getOrNull()?.startsWith("image/") == true
     }
+
+    /**
+     * Produces sendable image bytes without ever buffering an unbounded original in
+     * heap: originals up to the wire limit are streamed through a bounded read and sent
+     * as-is; larger ones are re-decoded from the stream with subsampling to at most
+     * [MAX_IMAGE_DIMENSION] pixels and JPEG-compressed under the limit.
+     */
+    private fun readImageForSend(uri: Uri): ByteArray? {
+        readBounded(uri)?.let { return it }
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        openStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > MAX_IMAGE_DIMENSION) sample *= 2
+
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bitmap = openStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) } ?: return null
+        try {
+            var quality = 85
+            while (quality >= 40) {
+                val out = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
+                val bytes = out.toByteArray()
+                if (bytes.size <= MAX_IMAGE_SEND_BYTES) return bytes
+                quality -= 15
+            }
+            return null
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    /** Reads the stream only while it stays within the wire limit; null when larger. */
+    private fun readBounded(uri: Uri): ByteArray? {
+        val input = openStream(uri) ?: return null
+        input.use { stream ->
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = stream.read(buffer)
+                if (read < 0) return out.toByteArray()
+                out.write(buffer, 0, read)
+                if (out.size() > MAX_IMAGE_SEND_BYTES) return null
+            }
+        }
+    }
+
+    private fun openStream(uri: Uri) =
+        runCatching { appContext.contentResolver.openInputStream(uri) }.getOrNull()
 
     private fun imageClip(bytes: ByteArray): ClipData {
         val dir = File(appContext.cacheDir, "clipimg").apply { mkdirs() }
@@ -126,5 +194,11 @@ class AndroidClipboard(private val context: Context) : LocalClipboard {
         } else {
             ClipType.TEXT
         }
+    }
+
+    private companion object {
+        // Headroom under the 4 MiB wire frame limit (envelope + AEAD overhead).
+        const val MAX_IMAGE_SEND_BYTES = 3 * 1024 * 1024
+        const val MAX_IMAGE_DIMENSION = 2048
     }
 }

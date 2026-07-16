@@ -133,7 +133,12 @@ object AppRuntime {
             val sync = ClipboardSync(
                 deviceId = identity.deviceId,
                 local = localClipboard,
-                send = { safeSend(ChannelId.EVENT, it) },
+                // Must THROW on failure (unlike safeSend) so the engine knows the item
+                // was not delivered and keeps it eligible for retry/manual send.
+                send = { message ->
+                    check(session.state.value is ConnectionState.Connected) { "Not connected" }
+                    session.send(ChannelId.EVENT, message)
+                },
                 clock = SystemClock,
                 historyLimit = 20,
             ).also { clipboardSync = it }
@@ -311,14 +316,34 @@ object AppRuntime {
     }
 
     suspend fun sendClipboard(): Boolean {
-        val sent = clipboard?.sendCurrent() == true
-        mutableNotice.value = if (sent) "Clipboard sent" else "Clipboard is empty"
-        return sent
+        val item = clipboard?.readCurrent()
+        if (item == null) {
+            mutableNotice.value = "Clipboard is empty or unreadable"
+            return false
+        }
+        return dispatchClipboardItem(item, "Clipboard sent")
     }
 
     suspend fun sendText(text: String): Boolean {
-        val sent = clipboard?.sendText(text) == true
-        mutableNotice.value = if (sent) "Text sent" else "No text to send"
+        val item = clipboard?.textItem(text)
+        if (item == null) {
+            mutableNotice.value = "No text to send"
+            return false
+        }
+        clipboard?.apply(item)
+        return dispatchClipboardItem(item, "Text sent")
+    }
+
+    private suspend fun dispatchClipboardItem(
+        item: dev.opentomac.shared.clipboard.ClipItem,
+        successNotice: String,
+    ): Boolean {
+        val sent = clipboardSync?.sendNow(item) == true
+        mutableNotice.value = when {
+            sent -> successNotice
+            connectionState.value !is ConnectionState.Connected -> "Not connected to a device"
+            else -> "Could not send clipboard item"
+        }
         return sent
     }
 

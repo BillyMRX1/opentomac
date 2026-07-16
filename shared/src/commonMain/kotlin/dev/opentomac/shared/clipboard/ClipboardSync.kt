@@ -6,6 +6,7 @@ import com.ionspin.kotlin.crypto.generichash.GenericHash
 import dev.opentomac.shared.crypto.ensureLibsodiumInitialized
 import dev.opentomac.shared.pairing.Clock
 import dev.opentomac.shared.protocol.ClipboardItemMsg
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -14,6 +15,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.random.Random
 
 /** Clipboard payload types supported by the MVP. */
@@ -108,6 +111,11 @@ class ClipboardSync(
     private var nextSequence = 0L
     private var collectionJob: Job? = null
 
+    // Serializes sequence assignment, the transport send, and dedupe-state updates so
+    // concurrent automatic and manual sends can never reach the wire out of seq order
+    // (the receiver drops seq <= lastSeen, so reordering would silently lose items).
+    private val sendMutex = Mutex()
+
     /** Starts watching local changes; calling start while already running is a no-op. */
     fun start(scope: CoroutineScope) {
         if (collectionJob?.isActive == true) return
@@ -149,12 +157,24 @@ class ClipboardSync(
         history.record(item)
     }
 
+    /**
+     * Sends [item] immediately, bypassing duplicate suppression (explicit user action,
+     * e.g. a "send clipboard" button). Returns false when the item is sensitive, sync is
+     * paused, or the send itself failed — a failed send is retryable.
+     */
+    suspend fun sendNow(item: ClipItem): Boolean = sendItem(item, force = true)
+
     private suspend fun onLocalItem(item: ClipItem) {
-        if (paused.value || item.sensitive) return
-        if (lastAppliedRemoteHash?.contentEquals(item.contentHash) == true) return
-        // Re-reading the same clipboard (e.g. on every app foreground) must not resend it.
-        if (lastLocalHash?.contentEquals(item.contentHash) == true) return
-        lastLocalHash = item.contentHash.copyOf()
+        sendItem(item, force = false)
+    }
+
+    private suspend fun sendItem(item: ClipItem, force: Boolean): Boolean = sendMutex.withLock {
+        if (paused.value || item.sensitive) return false
+        if (!force) {
+            if (lastAppliedRemoteHash?.contentEquals(item.contentHash) == true) return false
+            // Re-reading the same clipboard (e.g. on every app foreground) must not resend it.
+            if (lastLocalHash?.contentEquals(item.contentHash) == true) return false
+        }
 
         val sequence = ++nextSequence
         val message = ClipboardItemMsg(
@@ -166,7 +186,17 @@ class ClipboardSync(
             payloadBytes = item.payload,
             sensitive = item.sensitive,
         )
-        send(message)
+        try {
+            send(message)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // Send failed (offline, oversized, transport error): do NOT record the hash,
+            // so the same content stays eligible for retry or an explicit sendNow.
+            return false
+        }
+        lastLocalHash = item.contentHash.copyOf()
         history.record(item)
+        return true
     }
 }
