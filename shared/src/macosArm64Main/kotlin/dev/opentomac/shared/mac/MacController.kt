@@ -141,7 +141,7 @@ class MacController(
                 },
                 send = { safeSend(ChannelId.EVENT, it) },
             )
-            mediaBrowser = MediaCompanionBrowser(send = { safeSend(ChannelId.CONTROL, it) })
+            mediaBrowser = MediaCompanionBrowser(send = { safeSend(ChannelId.BULK, it) })
 
             sessionManager.registerHandler(ChannelId.EVENT) { envelope ->
                 when (val message = envelope.payload) {
