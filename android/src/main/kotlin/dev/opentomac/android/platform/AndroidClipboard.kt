@@ -102,7 +102,12 @@ class AndroidClipboard(context: Context) : LocalClipboard {
         .getOrNull()
 
     private suspend fun readClipItem(): ClipItem? {
-        val clip = withContext(Dispatchers.Main.immediate) { clipboard.primaryClip } ?: return null
+        val clip = withContext(Dispatchers.Main.immediate) { clipboard.primaryClip }
+        if (clip == null) {
+            Log.w(LOG_TAG, "primaryClip is null (empty, or the OS silently denied the read)")
+            return null
+        }
+        Log.w(LOG_TAG, describeClip(clip))
         val item = clip.getItemAt(0) ?: return null
         val uri = item.uri
         if (uri != null && isImage(clip, uri)) {
@@ -113,18 +118,43 @@ class AndroidClipboard(context: Context) : LocalClipboard {
                 runCatching { readImageForSend(uri) }
                     .onFailure { logReadFailure("read image for send", uri, it) }
                     .getOrNull()
-            } ?: return null
+            }
+            if (bytes == null) {
+                Log.w(LOG_TAG, "image read yielded no sendable bytes (uri=$uri)")
+                return null
+            }
+            Log.w(LOG_TAG, "image read produced ${bytes.size} sendable bytes")
             return ClipItem.create(ClipType.IMAGE, bytes, sensitive = false)
         }
         val text = withContext(Dispatchers.Main.immediate) {
             runCatching { item.coerceToText(appContext)?.toString() }
                 .onFailure { logReadFailure("coerce clipboard item to text", uri, it) }
                 .getOrNull()
-        }?.takeIf { it.isNotBlank() } ?: return null
+        }?.takeIf { it.isNotBlank() }
+        if (text == null) {
+            Log.w(LOG_TAG, "clip item coerced to no usable text (uri=$uri)")
+            return null
+        }
         // coerceToText falls back to the URI string for non-text URIs; that is noise,
         // not user content (e.g. an image whose provider hid its MIME type).
-        if (uri != null && text == uri.toString()) return null
+        if (uri != null && text == uri.toString()) {
+            Log.w(LOG_TAG, "dropping clip whose text is just its own URI (uri=$uri)")
+            return null
+        }
+        Log.w(LOG_TAG, "text read produced ${text.length} chars")
         return ClipItem.create(typeFor(text), text.toByteArray(), sensitive = false)
+    }
+
+    /** Metadata-only summary of a clip for logcat diagnosis; never logs clip content. */
+    private fun describeClip(clip: ClipData): String {
+        val description = clip.description
+        val mimeTypes = (0 until description.mimeTypeCount).joinToString(",") {
+            description.getMimeType(it)
+        }
+        val item = if (clip.itemCount > 0) clip.getItemAt(0) else null
+        return "primaryClip: items=${clip.itemCount} mimeTypes=[$mimeTypes] " +
+            "label=${description.label} uri=${item?.uri} " +
+            "hasText=${item?.text != null} hasHtml=${item?.htmlText != null}"
     }
 
     private fun isImage(clip: ClipData, uri: Uri): Boolean {
@@ -144,16 +174,24 @@ class AndroidClipboard(context: Context) : LocalClipboard {
      * [MAX_IMAGE_DIMENSION] pixels and JPEG-compressed under the limit.
      */
     private fun readImageForSend(uri: Uri): ByteArray? {
-        readBounded(uri)?.let { return it }
+        readBounded(uri)?.let {
+            Log.w(LOG_TAG, "image fits the frame as-is (${it.size} bytes)")
+            return it
+        }
 
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         openStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+        Log.w(LOG_TAG, "image bounds decode: ${bounds.outWidth}x${bounds.outHeight}")
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / sample > MAX_IMAGE_DIMENSION) sample *= 2
 
         val options = BitmapFactory.Options().apply { inSampleSize = sample }
-        val bitmap = openStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) } ?: return null
+        val bitmap = openStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+        if (bitmap == null) {
+            Log.w(LOG_TAG, "sampled decode produced no bitmap (sample=$sample)")
+            return null
+        }
         try {
             var quality = 85
             while (quality >= 40) {
@@ -163,6 +201,7 @@ class AndroidClipboard(context: Context) : LocalClipboard {
                 if (bytes.size <= MAX_IMAGE_SEND_BYTES) return bytes
                 quality -= 15
             }
+            Log.w(LOG_TAG, "image would not compress under the frame limit")
             return null
         } finally {
             bitmap.recycle()
@@ -179,7 +218,10 @@ class AndroidClipboard(context: Context) : LocalClipboard {
                 val read = stream.read(buffer)
                 if (read < 0) return out.toByteArray()
                 out.write(buffer, 0, read)
-                if (out.size() > MAX_IMAGE_SEND_BYTES) return null
+                if (out.size() > MAX_IMAGE_SEND_BYTES) {
+                    Log.w(LOG_TAG, "image exceeds frame limit; falling back to downscale")
+                    return null
+                }
             }
         }
     }
@@ -188,6 +230,7 @@ class AndroidClipboard(context: Context) : LocalClipboard {
         runCatching { appContext.contentResolver.openInputStream(uri) }
             .onFailure { logReadFailure("open clipboard URI stream", uri, it) }
             .getOrNull()
+            .also { if (it == null) Log.w(LOG_TAG, "openInputStream gave no stream (uri=$uri)") }
 
     private fun logReadFailure(operation: String, uri: Uri?, cause: Throwable) {
         Log.w(LOG_TAG, "$operation failed (uri=${uri?.toString() ?: "unknown"})", cause)
