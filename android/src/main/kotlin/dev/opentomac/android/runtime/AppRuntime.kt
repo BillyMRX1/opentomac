@@ -6,6 +6,9 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import dev.opentomac.android.platform.AndroidClipboard
 import dev.opentomac.android.platform.AndroidKeyValueStore
 import dev.opentomac.android.platform.AndroidMediaSource
@@ -137,8 +140,11 @@ object AppRuntime {
                 // Must THROW on failure (unlike safeSend) so the engine knows the item
                 // was not delivered and keeps it eligible for retry/manual send.
                 send = { message ->
-                    check(session.state.value is ConnectionState.Connected) { "Not connected" }
+                    val state = session.state.value
+                    Log.w("opentomac", "clipboard send attempt: type=${message.type} state=$state")
+                    check(state is ConnectionState.Connected) { "Not connected" }
                     session.send(ChannelId.EVENT, message)
+                    Log.w("opentomac", "clipboard send delivered: type=${message.type}")
                 },
                 clock = SystemClock,
                 historyLimit = 20,
@@ -211,7 +217,18 @@ object AppRuntime {
                     } else {
                         state
                     }
-                    if (state is ConnectionState.Connected) flushQueuedOffers()
+                    if (state is ConnectionState.Connected) {
+                        // A restarted peer's sequence counter starts over; drop the old
+                        // replay watermark or its items are silently discarded.
+                        sync.onSessionEstablished()
+                        flushQueuedOffers()
+                        // The resume-time clipboard read races reconnection: if it lost,
+                        // its item was dropped as unsendable. Re-drive it now that the
+                        // session is up; dedupe keeps this from resending old content.
+                        if (ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                            localClipboard.readCurrent()?.let { sync.trySend(it) }
+                        }
+                    }
                 }
             }
             initialized = true

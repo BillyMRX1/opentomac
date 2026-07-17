@@ -161,7 +161,12 @@ class MacController(
             clipboardSync.start(scope)
             refreshDevices()
             scope.launch {
-                sessionManager.state.collect { onState(it.describe()) }
+                sessionManager.state.collect { state ->
+                    // A restarted phone's sequence counter starts over; drop the old
+                    // replay watermark or its items are silently discarded.
+                    if (state is ConnectionState.Connected) clipboardSync.onSessionEstablished()
+                    onState(state.describe())
+                }
             }
             observeTransfers()
             startAcceptLoop()

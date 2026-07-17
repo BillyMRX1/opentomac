@@ -140,6 +140,16 @@ class ClipboardSync(
         mutablePaused.value = false
     }
 
+    /**
+     * Resets the per-origin replay filter for a freshly established session. Sequence
+     * numbers only order items within one peer process lifetime: a restarted peer starts
+     * counting from 1 again, and without this reset every item it sends is silently
+     * dropped as a replay until it outruns the counter remembered from its previous life.
+     */
+    fun onSessionEstablished() {
+        lastSeenSequenceByOrigin.clear()
+    }
+
     /** Applies a new in-order peer item unless it is an echo from this device. */
     suspend fun onRemoteItem(msg: ClipboardItemMsg) {
         if (msg.originDeviceId == deviceId) return
@@ -163,6 +173,13 @@ class ClipboardSync(
      * paused, or the send itself failed — a failed send is retryable.
      */
     suspend fun sendNow(item: ClipItem): Boolean = sendItem(item, force = true)
+
+    /**
+     * Sends [item] through normal duplicate suppression, for callers that re-drive sync
+     * outside the [start] collection (e.g. a reconnect while the app is foregrounded,
+     * where the resume-time read raced a session that was not up yet).
+     */
+    suspend fun trySend(item: ClipItem): Boolean = sendItem(item, force = false)
 
     private suspend fun onLocalItem(item: ClipItem) {
         sendItem(item, force = false)

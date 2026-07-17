@@ -134,6 +134,33 @@ class ClipboardSyncTest {
     }
 
     @Test
+    fun sessionEstablishedResetsReplayFilterSoRestartedPeersAreHeardAgain() = runTest {
+        val local = FakeLocalClipboard()
+        val engine = ClipboardSync("local", local, {}, FakeClock(), historyLimit = 10)
+        engine.onRemoteItem(clip("before restart").message(origin = "peer", seq = 5))
+
+        // The peer restarts, its counter starts over; without the reset seq 1 is a "replay".
+        engine.onRemoteItem(clip("dropped").message(origin = "peer", seq = 1))
+        engine.onSessionEstablished()
+        engine.onRemoteItem(clip("after restart").message(origin = "peer", seq = 1))
+
+        assertEquals(listOf("before restart", "after restart"), local.applied.map { it.text() })
+    }
+
+    @Test
+    fun trySendRespectsDuplicateSuppression() = runTest {
+        val local = FakeLocalClipboard()
+        val sent = mutableListOf<ClipboardItemMsg>()
+        val engine = ClipboardSync("local", local, sent::add, FakeClock(), historyLimit = 10)
+        val item = clip("reconnect sync")
+
+        assertTrue(engine.trySend(item))
+        assertFalse(engine.trySend(item))
+
+        assertEquals(1, sent.size)
+    }
+
+    @Test
     fun ownOriginEchoIsIgnored() = runTest {
         val local = FakeLocalClipboard()
         val engine = ClipboardSync("local", local, {}, FakeClock(), historyLimit = 10)
