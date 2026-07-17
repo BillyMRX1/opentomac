@@ -12,7 +12,7 @@ Read this together with `docs/HANDOVER.md` before continuing work.
 | Clipboard Mac to Android, images | PASS |
 | Clipboard Android to Mac, text | Works only after opening the app (expected, see F1) |
 | Clipboard Android to Mac, images | Same as text; screenshots never sync (bug, see F2) |
-| Photos grid on Mac | Only about 10 thumbnails load, rest spin forever (bug, see F3) |
+| Photos grid on Mac | PASS after F3 fix (verified 2026-07-17); photo import verified too, click-to-preview UI added on user feedback |
 | File transfer both directions | PASS ("flawless") |
 | Notification mirroring | Not yet tested; user needs instructions (see F4) |
 
