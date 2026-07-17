@@ -1,7 +1,7 @@
 # Device test findings
 
-Date: 2026-07-16
-Devices: Xiaomi/MIUI Android phone + Apple Silicon Mac, same Wi-Fi, paired and connected.
+Date: 2026-07-16, updated 2026-07-17
+Devices: Samsung One UI Android phone (earlier notes wrongly said Xiaomi/MIUI) + Apple Silicon Mac, same Wi-Fi, paired and connected.
 Read this together with `docs/HANDOVER.md` before continuing work.
 
 ## Test matrix (user-run)
@@ -20,17 +20,21 @@ Read this together with `docs/HANDOVER.md` before continuing work.
 
 Android 10+ forbids any backgrounded app from reading the clipboard. Sync fires on app foreground (ON_RESUME + 250 ms) and while the app is open; nothing can fire while the app is closed. The user labeled this "Failed" so it may be worth surfacing better in-app (a one-time explainer), but it is not fixable. Escape hatches: Send clipboard button, Quick Settings tile, share sheet, text-selection action.
 
-## F2. Screenshots land on the phone clipboard but never reach the Mac (BUG, diagnostics shipped)
+## F2. Screenshots never reach the Mac (RESOLVED: OS behavior, not a bug)
 
-Symptom: after taking a screenshot (which MIUI puts on the clipboard), opening opentomac does not sync it; presumably the manual button also fails.
+Root cause established 2026-07-17 from device logs (this hunt also surfaced and fixed the real F5 bug below): on Samsung One UI, screenshots never touch the Android system clipboard. The "clipboard" that shows screenshots on the phone is Samsung Keyboard's private clipboard history, which third-party apps cannot read. Instrumented logs proved the primary clip keeps its previous content after a screenshot. Everything that does reach the real clipboard (text, URLs, gallery Copy image) syncs correctly, auto-on-open.
 
-Leading hypothesis: the screenshot clip carries a content:// URI from the system screenshot provider that opentomac lacks permission to read. `AndroidClipboard.readClipItem` wraps the read in runCatching, so a SecurityException silently yields null and nothing is sent (by design, to protect the collect loop). Secondary hypothesis: MIUI's screenshot "clipboard" is a MIUI-side overlay, not the real primary clip.
+The one earlier read of a screenshot-looking clip that yielded no bytes (07-17 09:15, MediaStore URI, no exception) was never reproduced; images copied from Gallery read and sync fine (verified 825 KB jpeg).
 
-Diagnostics shipped 2026-07-17: every swallow point in `AndroidClipboard` (clip read, image read, stream open, MIME resolve, text coerce) now logs a warning with URI and cause under the `opentomac` tag. To reproduce and capture:
-1. Install the new APK, connect the phone over adb, run `adb logcat -s opentomac`.
-2. Take a screenshot, open opentomac, also try the Send clipboard button.
-3. The logged exception pinpoints the failure (SecurityException would confirm the URI-permission hypothesis; no log at all points at the MIUI overlay hypothesis).
-4. If it is URI permission: try `ClipData.Item.getUri` read via `contentResolver.openTypedAssetFileDescriptor`, or check whether the clip needs `android.permission.READ_MEDIA_IMAGES` granted (it is requested but the user may not have granted it), or whether MIUI needs its own clipboard permission toggle for the app.
+Working screenshot flows on One UI: screenshot toolbar > Share > opentomac (arrives as file transfer; manifest accepts image ACTION_SEND), or Gallery > Copy then open opentomac (arrives on the Mac pasteboard). Feature idea (user interest pending): optional "auto-send new screenshots" via a MediaStore ContentObserver on the Screenshots bucket, off by default.
+
+Diagnostics that made this findable stay in the debug build: `AndroidClipboard` logs a metadata-only clip summary and each image-path branch decision, and the AppRuntime clipboard send lambda logs attempt/delivery with connection state, all under the `opentomac` logcat tag.
+
+## F5. Clipboard items from a restarted phone were silently dropped by the Mac (BUG, FIXED)
+
+Found while chasing F2: `ClipboardSync`'s per-origin replay filter keeps the highest sequence seen, but a restarted phone app (reinstall, OS kill) resets its counter to 1, so the long-running Mac discarded every delivered item as a replay until the new counter outran the remembered watermark ("suddenly works after N sends" symptom). Fixed 2026-07-17: both sides clear the replay watermark via `ClipboardSync.onSessionEstablished()` when a session (re)connects; sequence numbers only order items within one peer lifetime.
+
+Same round also fixed the app-open race: the ON_RESUME clipboard read fired before reconnection finished and its failed send was dropped with no retry. On transition to Connected the phone now re-reads the clipboard (foreground only) and re-drives it through normal dedupe (`ClipboardSync.trySend`). Both fixes verified on device: auto-sync on app open now works with no manual button.
 
 ## F3. Photos grid: only ~10 thumbnails load, the rest spin forever (FIXED, needs device retest)
 
@@ -50,6 +54,6 @@ Known noise sources to ignore: opentomac's own foreground-service notification i
 ## Priority order for next session
 
 1. DONE (2026-07-17): F3 photos rate-limit fix. Needs user device retest.
-2. F2 screenshot clipboard: diagnostics shipped; needs user repro with `adb logcat -s opentomac`, then the actual fix.
+2. DONE (2026-07-17): F2 resolved as One UI behavior (workarounds documented); F5 replay-filter and reconnect-race bugs found and fixed, verified on device.
 3. F4 verify notification mirroring end to end including reply.
-4. Then continue the roadmap (photo import, Phase B).
+4. Then continue the roadmap: photo import device test, optional auto-send-screenshots feature (user interest pending), Phase B.

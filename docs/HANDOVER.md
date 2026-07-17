@@ -51,7 +51,8 @@ A Kotlin Multiplatform `shared` module (targets: android, jvm for tests, macosAr
 
 ## Known limits and open items
 
-- Phone-side auto clipboard sync only fires when the app foregrounds (Android OS restriction; user accepted). MIUI may be extra restrictive.
+- The test phone is a Samsung on One UI (earlier notes wrongly said Xiaomi/MIUI). One UI screenshots never reach the system clipboard (Samsung Keyboard keeps them in a private store); share-sheet or Gallery Copy are the working screenshot flows.
+- Phone-side auto clipboard sync only fires when the app foregrounds (Android OS restriction; user accepted).
 - Staged outbox files (cache/outbox on Android) have no deletion lifecycle in TransferEngine; repeated sends/imports accumulate cache until the OS evicts it. Known, shared by all send paths, accepted for now.
 - Photo import is fire-and-forget: no fetch ack message; the arriving FileOffer is the feedback. Accepted MVP trade-off (adversarial review suggested a correlated response if this ever bites).
 - macOS Mac clipboard TIFF-only image sources not synced (see above).
