@@ -44,11 +44,11 @@ Exit criteria for Phase A: a user can send and receive files from either device 
 
 All implemented, tested (unit + build), committed; pending user device test.
 
-### B0 (added). Auto-send screenshots — DONE
-- One UI never puts screenshots on the system clipboard, so a MediaStore observer watches the Screenshots bucket while connected and pushes new ones through the transfer pipeline. Dashboard switch, off by default; history is never re-sent.
+### B0 (added). Screenshot offer to Mac — DONE (reworked on user feedback)
+- One UI never puts screenshots on the system clipboard, so a MediaStore observer watches the Screenshots bucket while connected. Per user feedback the phone only ANNOUNCES each new screenshot (screenshot_taken); the Mac shows a notification whose "Send to Mac" action fetches the original via media_fetch_request. Dashboard switch "Offer new screenshots to Mac", off by default; history never announced.
 
-### B1. URL handoff (AUX-001) — DONE
-- open_url message. Phone: share an http(s) link to opentomac and it opens on the Mac. Mac: "Open copied link on phone" dashboard button; Android opens directly when foregrounded, else via a tappable notification (background activity-start restriction). Both receivers validate the scheme.
+### B1. URL handoff (AUX-001) — DONE (Mac-to-phone UI dropped on user feedback)
+- open_url message. Phone: share an http(s) link to opentomac and it opens on the Mac (the direction clipboard sync cannot replicate). The Mac's "Open copied link on phone" button was removed as redundant: clipboard sync already delivers the copied URL to the phone. The Android open_url receiver and MacController.openUrlOnPhone remain for potential future use. Both receivers validate the scheme.
 
 ### B2. Media remote (AUX-002, F11) — DONE
 - media_now_playing / media_control on EVENT (CONTROL rate limit would drop volume presses). MediaSessionManager bridge reuses the notification-listener component; Mac dashboard now-playing card with transport and volume controls.
