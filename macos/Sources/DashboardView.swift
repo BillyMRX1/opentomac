@@ -35,17 +35,6 @@ struct DashboardView: View {
             }
             Text(model.connectionStatus).foregroundStyle(.secondary)
 
-            HStack(spacing: 10) {
-                Button("Install camera extension") { model.installCameraExtension() }
-                Text(model.cameraExtensionStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("Requires an Apple Developer-signed and notarized build")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-
             if model.nowPlaying.hasSession {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {

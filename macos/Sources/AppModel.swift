@@ -70,7 +70,6 @@ final class AppModel: ObservableObject {
     @Published var cameraConfigured = false
     @Published var cameraStoppedReason: String?
     @Published var cameraVideoSize: CGSize?
-    @Published var cameraExtensionStatus = "Not installed"
     @Published private(set) var mirrorQuality: MirrorQualityPreset
     @Published var nowPlaying = NowPlayingState(
         appName: "",
@@ -85,7 +84,6 @@ final class AppModel: ObservableObject {
 
     private var controller: MacController!
     private let notifier = NotificationBridge()
-    private let cameraExtensionInstaller = CameraExtensionInstaller()
     private var mirrorRestartTask: Task<Void, Never>?
     private var cameraRestartTask: Task<Void, Never>?
     private var requestedSmsThreadId: String?
@@ -216,9 +214,6 @@ final class AppModel: ObservableObject {
                 }
             }
         )
-        cameraExtensionInstaller.onStatus = { [weak self] status in
-            Task { @MainActor in self?.cameraExtensionStatus = status }
-        }
         notifier.start(
             onReply: { [weak self] key, actionIndex, text in
                 self?.controller.replyToNotification(key: key, actionIndex: Int32(actionIndex), text: text)
@@ -419,10 +414,6 @@ final class AppModel: ObservableObject {
         cameraRenderer.reset()
         cameraActive = false
         cameraConfigured = false
-    }
-
-    func installCameraExtension() {
-        cameraExtensionInstaller.install()
     }
 
     func sendMirrorTap(x: CGFloat, y: CGFloat) {
