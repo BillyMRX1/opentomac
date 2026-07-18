@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rtk ls *)",
+      "Bash(pandoc --track-changes=all \"/Users/billymrx/Downloads/App Reverse Engineering Requirements.docx\" -o requirements-docx.md)",
+      "Bash(rtk wc *)",
+      "Bash(mkdir -p /Users/billymrx/project/opentomac/docs)",
+      "Bash(mv \"/Users/billymrx/Downloads/App Reverse Engineering Requirements.md\" \"/Users/billymrx/Downloads/App Reverse Engineering Requirements.docx\" \"/Users/billymrx/Downloads/LinkMyMac Product Scrape.json\" /Users/billymrx/project/opentomac/docs/)",
+      "Bash(cp \"/private/tmp/claude-501/-Users-billymrx-project-opentomac/5ecfa9bc-54d3-4f4f-b9a9-978f4eda0d24/scratchpad/requirements-docx.md\" \"/Users/billymrx/project/opentomac/docs/App Reverse Engineering Requirements \\(extracted\\).md\")"
+    ]
+  }
+}

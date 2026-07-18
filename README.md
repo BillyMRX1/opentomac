@@ -23,7 +23,7 @@ MVP in progress. The shared core is complete and tested; the Android and macOS a
 
 135 automated tests cover the shared core (`./gradlew :shared:jvmTest`).
 
-Deferred behind future feasibility and policy work: USB transport, screen mirroring and remote control, SMS and calls, virtual camera and microphone, the iPad companion, and the iPhone-to-Android drop flow. On macOS, photo browsing is engine-complete in the shared module but not yet surfaced in the UI.
+Deferred behind future feasibility and policy work: USB transport, screen mirroring and remote control, SMS and calls, the iPad companion, and the iPhone-to-Android drop flow. The virtual camera and microphone feature was dropped. On macOS, photo browsing is engine-complete in the shared module but not yet surfaced in the UI.
 
 ## How it works
 

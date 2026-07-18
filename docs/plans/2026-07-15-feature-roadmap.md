@@ -13,7 +13,7 @@ Context: The shared core (protocol, crypto, pairing, session, TCP, clipboard, fi
 | Notification mirroring | Done | Reads notifications (needs permission granted) | Shows as transient text | Permission onboarding + a real notifications panel with reply |
 | Photos browser | Done | Exposes media as agent | No UI | Build the Mac photos grid and import |
 | Screen mirroring + control | Not built | Not built | Not built | Full feature |
-| Virtual webcam + microphone | Not built | Not built | Not built | Full feature |
+| Virtual webcam + microphone | Removed | Removed | Removed | Dropped 2026-07-18 at user direction |
 | SMS/MMS, calls, contacts | Not built | Not built | Not built | Full feature, policy-gated |
 | Media remote, URL handoff | Not built | Not built | Not built | Full feature |
 | iPad companion, LinkMyDrop | Not built | Not built | Not built | Full feature |
@@ -75,10 +75,7 @@ The first marquee feature and a large one.
 
 ## Phase D: virtual webcam and microphone (CAM-001..005, F12/F13)
 
-DONE 2026-07-18 for the pipeline; the virtual camera is gated on Apple Developer signing (see docs/PHASE_D_CAMERA.md).
-- Android CameraX -> H.264 and AudioRecord -> AAC capture in a camera/microphone foreground service; camera_request/camera_stop/camera_config/camera_frame/audio_frame on the VIDEO channel. Camera and screen mirroring share one atomic capture-ownership state machine; every stop path releases camera+mic locally before a bounded peer notify.
-- macOS in-app Webcam preview window decodes and shows the phone camera live (works now, free, no signing) — this is the shipped form of the feature.
-- The macOS virtual camera (CMIO system extension appearing inside Zoom/Meet) was removed 2026-07-18: it requires a signed + notarized build, i.e. a paid Apple Developer membership the project does not have, so the install path could only fail. If a Developer account is ever available, the pipeline (capture/stream/decode) is all in place; only a CMIO extension target + signing would need to be re-added.
+DROPPED 2026-07-18 at user direction. The virtual-camera system extension had already been removed because its signed/notarized distribution path required a paid Apple Developer membership. The remaining in-app phone-camera preview, microphone capture, camera protocol messages, permissions, services, dependencies, and UI were then removed completely. Screen mirroring remains a separate Phase C feature and continues to use the VIDEO channel with `video_config`/`video_frame`.
 
 ## Phase E: messaging and calls (MSG-001..005, F05/F08)
 
