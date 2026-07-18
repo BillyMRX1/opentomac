@@ -1,6 +1,6 @@
 # opentomac handover
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Purpose: everything a fresh session needs to continue this project without re-reading the whole history.
 
 READ NEXT: `docs/FINDINGS.md` holds the latest on-device test results and three open items (photos-grid rate-limit bug with root cause identified, screenshot clipboard bug, notification mirroring verification). Start there; it defines the priority order for the next session.
@@ -70,4 +70,4 @@ A Kotlin Multiplatform `shared` module (targets: android, jvm for tests, macosAr
 
 ## Task state
 
-All 13 implementation-plan tasks completed. Roadmap Phase A (A1 file UI, A2 notifications, A3 photos grid) completed. FINDINGS F3 (photos grid rate limit) fixed on 2026-07-17 pending device retest; F2 has diagnostics in place awaiting a logcat capture from the user; F4 (notification mirroring) still needs the user's end-to-end test. Photo import (roadmap next step 1) implemented on 2026-07-17, also pending device test. Both apps rebuilt and verified after every change.
+All 13 implementation-plan tasks completed. Roadmap Phases A and B completed (B on 2026-07-18: transfer cancel, auto-send screenshots, URL handoff both ways, media remote, contacts browse; all unit/build verified, pending user device test). Device-verified earlier: clipboard all types with auto-sync, file transfer, photos grid + preview + import, notification mirroring, quick-settings tile, auto-connect. Still unverified by the user: notification inline reply from the Mac banner, and the fixed text-selection action. Next up: Phase C screen mirroring (large). Both apps rebuilt and verified after every change.

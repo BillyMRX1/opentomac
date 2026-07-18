@@ -40,18 +40,23 @@ Highest value for lowest effort. These make the work already in the codebase act
 
 Exit criteria for Phase A: a user can send and receive files from either device with visible progress, see phone notifications on the Mac and reply to them, and browse and import phone photos on the Mac.
 
-## Phase B: lightweight continuity additions
+## Phase B: lightweight continuity additions — COMPLETE (2026-07-18)
 
-Moderate Android platform work, no macOS system extensions, no store-policy risk.
+All implemented, tested (unit + build), committed; pending user device test.
 
-### B1. URL handoff (AUX-001)
-- Send the current or a shared URL to the peer and open it in the default browser after a user action. Protocol message already exists in spirit; add an "open on peer" action. Effort: about 1 day.
+### B0 (added). Auto-send screenshots — DONE
+- One UI never puts screenshots on the system clipboard, so a MediaStore observer watches the Screenshots bucket while connected and pushes new ones through the transfer pipeline. Dashboard switch, off by default; history is never re-sent.
 
-### B2. Media remote (AUX-002, F11)
-- Expose the phone's active `MediaSession` metadata and transport controls (play/pause/next/previous/volume) to the Mac. New shared messages plus an Android `MediaSessionManager` bridge and a small Mac control UI. Effort: about 3 to 5 days.
+### B1. URL handoff (AUX-001) — DONE
+- open_url message. Phone: share an http(s) link to opentomac and it opens on the Mac. Mac: "Open copied link on phone" dashboard button; Android opens directly when foregrounded, else via a tappable notification (background activity-start restriction). Both receivers validate the scheme.
 
-### B3. Contacts browse (MSG-003, F09)
-- Read-only, on-demand contact search from the Mac, no bulk upload. New shared messages plus an Android contacts query behind its runtime permission. Effort: about 2 to 3 days.
+### B2. Media remote (AUX-002, F11) — DONE
+- media_now_playing / media_control on EVENT (CONTROL rate limit would drop volume presses). MediaSessionManager bridge reuses the notification-listener component; Mac dashboard now-playing card with transport and volume controls.
+
+### B3. Contacts browse (MSG-003, F09) — DONE
+- contacts_search_request/response on BULK; shared agent/companion with single-flight + timeout; Android ContactsContract source behind READ_CONTACTS with LIKE-escaped, length-bounded queries; Mac Contacts sheet with copyable values that clear on close.
+
+Also added in this phase: transfer cancel buttons on both apps (wired the existing TransferEngine.cancel).
 
 ## Phase C: screen mirroring and remote control (MIR-001..007, F06/F07)
 
