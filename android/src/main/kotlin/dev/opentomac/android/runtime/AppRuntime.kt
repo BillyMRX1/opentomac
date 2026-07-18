@@ -25,6 +25,7 @@ import dev.opentomac.android.platform.AndroidKeyValueStore
 import dev.opentomac.android.platform.AndroidMediaSource
 import dev.opentomac.android.platform.AndroidNotificationSource
 import dev.opentomac.android.platform.MediaRemoteAgent
+import dev.opentomac.android.service.MirroringService
 import dev.opentomac.shared.clipboard.ClipboardSync
 import dev.opentomac.shared.contacts.ContactsAgent
 import dev.opentomac.shared.crypto.Identity
@@ -45,6 +46,8 @@ import dev.opentomac.shared.protocol.MediaControl
 import dev.opentomac.shared.protocol.MediaListRequest
 import dev.opentomac.shared.protocol.Message
 import dev.opentomac.shared.protocol.MediaItem
+import dev.opentomac.shared.protocol.MirrorRequest
+import dev.opentomac.shared.protocol.MirrorStop
 import dev.opentomac.shared.protocol.NotificationAction
 import dev.opentomac.shared.protocol.NotificationDismissed
 import dev.opentomac.shared.protocol.NotificationPosted
@@ -88,7 +91,10 @@ object AppRuntime {
     private const val ENDPOINT_PREFIX = "endpoint/"
     private const val AUTO_SEND_SCREENSHOTS_KEY = "settings.autoSendScreenshots"
     private const val LINKS_CHANNEL_ID = "opentomac_links"
+    private const val MIRROR_REQUESTS_CHANNEL_ID = "opentomac_mirror_requests"
+    private const val MIRROR_REQUEST_NOTIFICATION_ID = 1003
     private const val SCREENSHOT_DEBOUNCE_MS = 650L
+    const val EXTRA_REQUEST_MIRROR_CONSENT = "request_mirror_consent"
 
     private val initMutex = Mutex()
     private var initialized = false
@@ -115,6 +121,8 @@ object AppRuntime {
     private var screenshotObserver: ContentObserver? = null
     private var screenshotDebounceJob: Job? = null
     private var lastSeenImageId = 0L
+    @Volatile
+    private var mirroringServiceStopper: ((String, Boolean) -> Unit)? = null
 
     private val mutableConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Unpaired)
     val connectionState: StateFlow<ConnectionState> = mutableConnectionState.asStateFlow()
@@ -133,6 +141,12 @@ object AppRuntime {
 
     private val mutableAutoSendScreenshots = MutableStateFlow(false)
     val autoSendScreenshots: StateFlow<Boolean> = mutableAutoSendScreenshots.asStateFlow()
+
+    private val mutableMirrorConsentRequested = MutableStateFlow(false)
+    val mirrorConsentRequested: StateFlow<Boolean> = mutableMirrorConsentRequested.asStateFlow()
+
+    private val mutableMirroring = MutableStateFlow(false)
+    val mirroring: StateFlow<Boolean> = mutableMirroring.asStateFlow()
 
     private val mutableMediaItems = MutableStateFlow<List<MediaItem>>(emptyList())
     val mediaItems: StateFlow<List<MediaItem>> = mutableMediaItems.asStateFlow()
@@ -257,6 +271,12 @@ object AppRuntime {
                     is ClipboardItemMsg -> sync.onRemoteItem(message)
                     is MediaControl -> mediaRemote.onControl(message)
                     is OpenUrl -> handleOpenUrlFromPeer(appContext, message.url)
+                    is MirrorRequest -> handleMirrorRequest(appContext)
+                    is MirrorStop -> {
+                        appContext.getSystemService(NotificationManager::class.java)
+                            .cancel(MIRROR_REQUEST_NOTIFICATION_ID)
+                        stopMirroring(message.reason, notifyPeer = false)
+                    }
                     else -> notifications.onMessage(message)
                 }
             }
@@ -295,6 +315,11 @@ object AppRuntime {
                         if (ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
                             localClipboard.readCurrent()?.let { sync.trySend(it) }
                         }
+                    } else {
+                        mutableMirrorConsentRequested.value = false
+                        if (mutableMirroring.value) {
+                            stopMirroring("Connection lost", notifyPeer = true)
+                        }
                     }
                 }
             }
@@ -328,7 +353,60 @@ object AppRuntime {
     }
 
     suspend fun disconnect() {
+        if (mutableMirroring.value) {
+            sendMirrorMessage(ChannelId.EVENT, MirrorStop("Disconnected"))
+            stopMirroring("Disconnected", notifyPeer = false)
+        }
         sessionManager?.disconnect()
+    }
+
+    fun startMirroring(resultCode: Int, data: Intent) {
+        mutableMirrorConsentRequested.value = false
+        val context = appContext
+        if (context == null || connectionState.value !is ConnectionState.Connected) {
+            mutableNotice.value = "Not connected to a device"
+            return
+        }
+        runCatching { MirroringService.start(context, resultCode, data) }
+            .onFailure {
+                Log.w("opentomac", "could not launch mirroring service", it)
+                mutableNotice.value = "Could not start screen mirroring: ${it.userMessage()}"
+            }
+    }
+
+    fun stopMirroring() {
+        stopMirroring("Stopped on phone", notifyPeer = true)
+    }
+
+    fun consumeMirrorConsentRequest() {
+        mutableMirrorConsentRequested.value = false
+    }
+
+    fun requestMirrorConsentFromUi() {
+        if (connectionState.value is ConnectionState.Connected && !mutableMirroring.value) {
+            mutableMirrorConsentRequested.value = true
+        }
+    }
+
+    fun mirrorConsentDenied() {
+        mutableMirrorConsentRequested.value = false
+        scope?.launch { sendMirrorMessage(ChannelId.EVENT, MirrorStop("Screen capture permission denied")) }
+    }
+
+    internal fun attachMirroringService(stopper: (String, Boolean) -> Unit) {
+        mirroringServiceStopper = stopper
+    }
+
+    internal fun detachMirroringService() {
+        mirroringServiceStopper = null
+    }
+
+    internal fun setMirroringActive(active: Boolean) {
+        mutableMirroring.value = active
+    }
+
+    internal suspend fun sendMirrorMessage(channel: ChannelId, message: Message) {
+        safeSend(channel, message)
     }
 
     suspend fun forget(device: TrustedDevice) = runCatchingAction("Could not forget device") {
@@ -540,6 +618,7 @@ object AppRuntime {
 
     fun shutdown() {
         initialized = false
+        stopMirroring("App shutting down", notifyPeer = true)
         stopScreenshotObserver()
         clipboardSync?.stop()
         notificationAgent?.stop()
@@ -547,6 +626,17 @@ object AppRuntime {
         hostServer?.close()
         scope?.cancel()
         mutableReady.value = false
+    }
+
+    private fun stopMirroring(reason: String, notifyPeer: Boolean) {
+        mutableMirrorConsentRequested.value = false
+        val stopper = mirroringServiceStopper
+        if (stopper != null) {
+            stopper(reason, notifyPeer)
+        } else {
+            appContext?.stopService(Intent(appContext, MirroringService::class.java))
+            mutableMirroring.value = false
+        }
     }
 
     private suspend fun startScreenshotObserver(context: Context): Boolean {
@@ -735,6 +825,50 @@ object AppRuntime {
         runCatching { manager.notify(requestCode, notification) }
             .onSuccess { Log.w("opentomac", "posted URL notification from Mac: host=${uri.host}") }
             .onFailure { Log.w("opentomac", "could not post URL notification", it) }
+    }
+
+    private fun handleMirrorRequest(context: Context) {
+        if (mutableMirroring.value) return
+        val foreground = ProcessLifecycleOwner.get().lifecycle.currentState
+            .isAtLeast(Lifecycle.State.STARTED)
+        if (foreground) {
+            mutableMirrorConsentRequested.value = true
+            mutableNotice.value = "Mac requested screen mirroring"
+            return
+        }
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                MIRROR_REQUESTS_CHANNEL_ID,
+                "Screen mirror requests",
+                NotificationManager.IMPORTANCE_HIGH,
+            ),
+        )
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            Intent(context, dev.opentomac.android.ui.MainActivity::class.java).apply {
+                putExtra(EXTRA_REQUEST_MIRROR_CONSENT, true)
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = NotificationCompat.Builder(context, MIRROR_REQUESTS_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_tile_clipboard)
+            .setContentTitle("Mirror screen to Mac")
+            .setContentText("Tap to approve screen sharing")
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        runCatching { manager.notify(MIRROR_REQUEST_NOTIFICATION_ID, notification) }
+            .onSuccess { Log.w("opentomac", "posted screen mirror consent notification") }
+            .onFailure { Log.w("opentomac", "could not post screen mirror consent notification", it) }
     }
 
     private fun webUriOrNull(value: String): Uri? {

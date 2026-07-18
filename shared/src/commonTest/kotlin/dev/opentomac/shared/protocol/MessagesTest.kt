@@ -218,6 +218,45 @@ class MessagesTest {
     }
 
     @Test
+    fun mirrorRequestRoundTrip() {
+        val msg = MirrorRequest(requestedAtMs = 1_720_000_000_789)
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+    }
+
+    @Test
+    fun mirrorStopRoundTrip() {
+        val msg = MirrorStop(reason = "Stopped by peer")
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+    }
+
+    @Test
+    fun videoConfigRoundTrip() {
+        val msg = VideoConfig(
+            width = 720,
+            height = 1280,
+            csd0 = byteArrayOf(0, 0, 0, 1, 0x67),
+            csd1 = byteArrayOf(0, 0, 0, 1, 0x68),
+            frameRate = 30,
+        )
+        val decoded = assertIs<VideoConfig>(roundTrip(msg, channel = ChannelId.VIDEO))
+        assertContentEquals(msg.csd0, decoded.csd0)
+        assertContentEquals(msg.csd1, decoded.csd1)
+        assertEquals(msg, decoded)
+    }
+
+    @Test
+    fun videoFrameRoundTrip() {
+        val msg = VideoFrame(
+            ptsUs = 33_333,
+            keyframe = true,
+            data = ByteArray(2048) { (it % 251).toByte() },
+        )
+        val decoded = assertIs<VideoFrame>(roundTrip(msg, channel = ChannelId.VIDEO))
+        assertContentEquals(msg.data, decoded.data)
+        assertEquals(msg, decoded)
+    }
+
+    @Test
     fun mediaNowPlayingRoundTrip() {
         val msg = MediaNowPlaying(
             appName = "Music",

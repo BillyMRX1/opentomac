@@ -369,6 +369,70 @@ data class ThumbnailResponse(
     override fun hashCode(): Int = 31 * mediaId.hashCode() + jpegBytes.contentHashCode()
 }
 
+// --- Screen mirroring ---
+
+@Serializable
+@SerialName("mirror_request")
+data class MirrorRequest(
+    @ProtoNumber(1) val requestedAtMs: Long,
+) : Message
+
+@Serializable
+@SerialName("mirror_stop")
+data class MirrorStop(
+    @ProtoNumber(1) val reason: String,
+) : Message
+
+@Serializable
+@SerialName("video_config")
+data class VideoConfig(
+    @ProtoNumber(1) val width: Int,
+    @ProtoNumber(2) val height: Int,
+    @ProtoNumber(3) val csd0: ByteArray,
+    @ProtoNumber(4) val csd1: ByteArray,
+    @ProtoNumber(5) val frameRate: Int,
+) : Message {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is VideoConfig) return false
+        return width == other.width &&
+            height == other.height &&
+            csd0.contentEquals(other.csd0) &&
+            csd1.contentEquals(other.csd1) &&
+            frameRate == other.frameRate
+    }
+
+    override fun hashCode(): Int {
+        var result = width
+        result = 31 * result + height
+        result = 31 * result + csd0.contentHashCode()
+        result = 31 * result + csd1.contentHashCode()
+        result = 31 * result + frameRate
+        return result
+    }
+}
+
+@Serializable
+@SerialName("video_frame")
+data class VideoFrame(
+    @ProtoNumber(1) val ptsUs: Long,
+    @ProtoNumber(2) val keyframe: Boolean,
+    @ProtoNumber(3) val data: ByteArray,
+) : Message {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is VideoFrame) return false
+        return ptsUs == other.ptsUs && keyframe == other.keyframe && data.contentEquals(other.data)
+    }
+
+    override fun hashCode(): Int {
+        var result = ptsUs.hashCode()
+        result = 31 * result + keyframe.hashCode()
+        result = 31 * result + data.contentHashCode()
+        return result
+    }
+}
+
 // --- Media remote ---
 
 @Serializable

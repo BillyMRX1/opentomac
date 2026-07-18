@@ -1,7 +1,9 @@
 package dev.opentomac.android.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -62,6 +64,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         startConnectionService()
         setContent { OpentomacApp() }
+        if (intent.getBooleanExtra(AppRuntime.EXTRA_REQUEST_MIRROR_CONSENT, false)) {
+            AppRuntime.requestMirrorConsentFromUi()
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(AppRuntime.EXTRA_REQUEST_MIRROR_CONSENT, false)) {
+            AppRuntime.requestMirrorConsentFromUi()
+        }
     }
 
     private fun startConnectionService() {
@@ -84,6 +97,28 @@ private fun OpentomacApp() {
         val context = LocalContext.current
         val snackbar = remember { SnackbarHostState() }
         var screen by remember { mutableStateOf(Screen.DASHBOARD) }
+        val mirrorConsentRequested by AppRuntime.mirrorConsentRequested.collectAsStateWithLifecycle()
+
+        val projectionManager = remember {
+            context.getSystemService(MediaProjectionManager::class.java)
+        }
+        val mirrorConsent = rememberLauncherForActivityResult(
+            ActivityResultContracts.StartActivityForResult(),
+        ) { result ->
+            val data = result.data
+            if (result.resultCode == Activity.RESULT_OK && data != null) {
+                AppRuntime.startMirroring(result.resultCode, data)
+            } else {
+                AppRuntime.mirrorConsentDenied()
+            }
+        }
+        val requestMirrorConsent = {
+            AppRuntime.consumeMirrorConsentRequest()
+            mirrorConsent.launch(projectionManager.createScreenCaptureIntent())
+        }
+        LaunchedEffect(mirrorConsentRequested) {
+            if (mirrorConsentRequested) requestMirrorConsent()
+        }
 
         val notice by AppRuntime.notice.collectAsStateWithLifecycle()
         LaunchedEffect(notice) {
@@ -124,6 +159,8 @@ private fun OpentomacApp() {
                         onAutoSendScreenshotsChanged = { enabled ->
                             scope.launch { AppRuntime.setAutoSendScreenshots(enabled) }
                         },
+                        onMirror = requestMirrorConsent,
+                        onStopMirroring = AppRuntime::stopMirroring,
                     )
                     Screen.PAIR -> PairScreen(onDone = { screen = Screen.DASHBOARD })
                 }
@@ -140,12 +177,15 @@ private fun DashboardScreen(
     onForget: (TrustedDevice) -> Unit,
     onSendFiles: (List<Uri>) -> Unit,
     onAutoSendScreenshotsChanged: (Boolean) -> Unit,
+    onMirror: () -> Unit,
+    onStopMirroring: () -> Unit,
 ) {
     val state by AppRuntime.connectionState.collectAsStateWithLifecycle()
     val devices by AppRuntime.pairedDevices.collectAsStateWithLifecycle()
     val transfers by AppRuntime.transfers.collectAsStateWithLifecycle()
     val autoSendScreenshots by AppRuntime.autoSendScreenshots.collectAsStateWithLifecycle()
     val ready by AppRuntime.ready.collectAsStateWithLifecycle()
+    val mirroring by AppRuntime.mirroring.collectAsStateWithLifecycle()
 
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -164,6 +204,15 @@ private fun DashboardScreen(
         Button(onClick = onSendClipboard) { Text("Send clipboard") }
         Button(onClick = { filePicker.launch(arrayOf("*/*")) }) { Text("Send file") }
         Button(onClick = onPair) { Text("Pair") }
+    }
+    Spacer(Modifier.height(8.dp))
+    if (mirroring) {
+        OutlinedButton(onClick = onStopMirroring) { Text("Stop mirroring") }
+    } else {
+        Button(
+            onClick = onMirror,
+            enabled = state is ConnectionState.Connected,
+        ) { Text("Mirror to Mac") }
     }
 
     Spacer(Modifier.height(8.dp))
