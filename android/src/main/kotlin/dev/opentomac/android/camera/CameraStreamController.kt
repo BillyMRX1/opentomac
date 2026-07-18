@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.display.DisplayManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaCodec
@@ -13,9 +14,13 @@ import android.media.MediaRecorder
 import android.os.Bundle
 import android.util.Log
 import android.util.Size
+import android.view.Display
 import android.view.Surface
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -106,8 +111,6 @@ class CameraStreamController(
             val config = CompletableDeferred<CameraConfig>()
             val frames = Channel<CameraFrame>(capacity = 2)
             videoFrames = frames
-            configureVideoEncoder(config, frames)
-            if (withAudio) configureAudioEncoder()
 
             ContextCompat.getMainExecutor(context).execute {
                 lifecycleRegistry.currentState = Lifecycle.State.STARTED
@@ -117,7 +120,7 @@ class CameraStreamController(
                         runCatching {
                             if (closed.get()) return@runCatching
                             val provider = future.get().also { cameraProvider = it }
-                            bindCamera(provider)
+                            bindCamera(provider, config, frames)
                         }.onFailure(::fail)
                     },
                     ContextCompat.getMainExecutor(context),
@@ -178,12 +181,14 @@ class CameraStreamController(
     }
 
     private fun configureVideoEncoder(
+        width: Int,
+        height: Int,
         config: CompletableDeferred<CameraConfig>,
         frames: Channel<CameraFrame>,
     ) {
         val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
         videoCodec = encoder
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, WIDTH, HEIGHT).apply {
+        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, VIDEO_BITRATE_BPS)
             setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
@@ -197,21 +202,30 @@ class CameraStreamController(
             send(ChannelId.VIDEO, config.await())
             for (frame in frames) send(ChannelId.VIDEO, frame)
         }
-        videoDrainJob = scope.launch(codecDispatcher) { drainVideo(encoder, config, frames) }
+        videoDrainJob = scope.launch(codecDispatcher) {
+            drainVideo(encoder, width, height, config, frames)
+        }
     }
 
-    private fun bindCamera(provider: ProcessCameraProvider) {
-        val surface = checkNotNull(videoSurface)
-        val preview = Preview.Builder()
-            .setTargetResolution(Size(WIDTH, HEIGHT))
+    private fun bindCamera(
+        provider: ProcessCameraProvider,
+        config: CompletableDeferred<CameraConfig>,
+        frames: Channel<CameraFrame>,
+    ) {
+        val targetRotation = currentDisplayRotation()
+        val resolutionSelector = ResolutionSelector.Builder()
+            .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+            .setResolutionStrategy(
+                ResolutionStrategy(
+                    Size(PREFERRED_WIDTH, PREFERRED_HEIGHT),
+                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+                ),
+            )
             .build()
-        preview.setSurfaceProvider(cameraExecutor) { request ->
-            request.provideSurface(surface, cameraExecutor) { result ->
-                if (!closed.get() && result.resultCode != androidx.camera.core.SurfaceRequest.Result.RESULT_SURFACE_USED_SUCCESSFULLY) {
-                    Log.w("opentomac", "CameraX released encoder surface: ${result.resultCode}")
-                }
-            }
-        }
+        val preview = Preview.Builder()
+            .setTargetRotation(targetRotation)
+            .setResolutionSelector(resolutionSelector)
+            .build()
         val selector = if (facing == FACING_FRONT) {
             CameraSelector.DEFAULT_FRONT_CAMERA
         } else {
@@ -219,11 +233,62 @@ class CameraStreamController(
         }
         provider.unbindAll()
         provider.bindToLifecycle(this, selector, preview)
-        Log.w("opentomac", "camera stream started: $facing ${WIDTH}x$HEIGHT${if (withAudio) " with mic" else ""}")
+
+        // CameraX chooses the Preview buffer size only while binding. Configure
+        // MediaCodec from that selected sensor-coordinate resolution, then ask
+        // CameraX for its SurfaceRequest. This keeps the camera buffer, encoder
+        // surface, H.264 macroblock layout, and CameraConfig dimensions equal.
+        val resolutionInfo = checkNotNull(preview.resolutionInfo) {
+            "CameraX did not resolve a Preview output size after binding"
+        }
+        val resolution = resolutionInfo.resolution
+        configureVideoEncoder(resolution.width, resolution.height, config, frames)
+        if (withAudio) configureAudioEncoder()
+        val surface = checkNotNull(videoSurface)
+        preview.setSurfaceProvider(cameraExecutor) { request ->
+            if (request.resolution != resolution) {
+                request.willNotProvideSurface()
+                fail(
+                    IllegalStateException(
+                        "CameraX SurfaceRequest ${request.resolution.width}x${request.resolution.height} " +
+                            "does not match encoder ${resolution.width}x${resolution.height}",
+                    ),
+                )
+                return@setSurfaceProvider
+            }
+            request.provideSurface(surface, cameraExecutor) { result ->
+                if (!closed.get() && result.resultCode != androidx.camera.core.SurfaceRequest.Result.RESULT_SURFACE_USED_SUCCESSFULLY) {
+                    Log.w("opentomac", "CameraX released encoder surface: ${result.resultCode}")
+                }
+            }
+        }
+        Log.w(
+            "opentomac",
+            "camera stream started: $facing ${resolution.width}x${resolution.height} " +
+                "bufferRotation=${resolutionInfo.rotationDegrees} " +
+                "targetRotation=${targetRotation.toRotationDegrees()}" +
+                if (withAudio) " with mic" else "",
+        )
+    }
+
+    @Suppress("DEPRECATION")
+    private fun currentDisplayRotation(): Int =
+        context.getSystemService(DisplayManager::class.java)
+            .getDisplay(Display.DEFAULT_DISPLAY)
+            ?.rotation
+            ?: Surface.ROTATION_0
+
+    private fun Int.toRotationDegrees(): Int = when (this) {
+        Surface.ROTATION_90 -> 90
+        Surface.ROTATION_180 -> 180
+        Surface.ROTATION_270 -> 270
+        else -> 0
     }
 
     private suspend fun drainVideo(
         encoder: MediaCodec,
+        width: Int,
+        height: Int,
         config: CompletableDeferred<CameraConfig>,
         frames: Channel<CameraFrame>,
     ) {
@@ -238,7 +303,7 @@ class CameraStreamController(
                             ?: error("H.264 camera encoder did not provide csd-0")
                         val csd1 = output.getByteBuffer("csd-1")?.copyBytes()
                             ?: error("H.264 camera encoder did not provide csd-1")
-                        config.complete(CameraConfig(WIDTH, HEIGHT, csd0, csd1, FRAME_RATE))
+                        config.complete(CameraConfig(width, height, csd0, csd1, FRAME_RATE))
                     }
                     else -> if (index >= 0) {
                         try {
@@ -446,8 +511,8 @@ class CameraStreamController(
     companion object {
         const val FACING_FRONT = "front"
         const val FACING_BACK = "back"
-        private const val WIDTH = 1280
-        private const val HEIGHT = 720
+        private const val PREFERRED_WIDTH = 1280
+        private const val PREFERRED_HEIGHT = 720
         private const val FRAME_RATE = 30
         private const val VIDEO_BITRATE_BPS = 4_000_000
         private const val I_FRAME_INTERVAL_SECONDS = 2
