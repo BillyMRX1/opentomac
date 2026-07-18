@@ -23,6 +23,7 @@ import dev.opentomac.android.platform.AndroidClipboard
 import dev.opentomac.android.platform.AndroidKeyValueStore
 import dev.opentomac.android.platform.AndroidMediaSource
 import dev.opentomac.android.platform.AndroidNotificationSource
+import dev.opentomac.android.platform.MediaRemoteAgent
 import dev.opentomac.shared.clipboard.ClipboardSync
 import dev.opentomac.shared.crypto.Identity
 import dev.opentomac.shared.media.MediaAgent
@@ -38,6 +39,7 @@ import dev.opentomac.shared.protocol.ChannelId
 import dev.opentomac.shared.protocol.ClipboardItemMsg
 import dev.opentomac.shared.protocol.DuplicatePolicy
 import dev.opentomac.shared.protocol.FileMeta
+import dev.opentomac.shared.protocol.MediaControl
 import dev.opentomac.shared.protocol.MediaListRequest
 import dev.opentomac.shared.protocol.Message
 import dev.opentomac.shared.protocol.MediaItem
@@ -98,6 +100,7 @@ object AppRuntime {
     private var transferEngine: TransferEngine? = null
     private var notificationAgent: NotificationAgent? = null
     private var mediaAgent: MediaAgent? = null
+    private var mediaRemoteAgent: MediaRemoteAgent? = null
     private var mediaSource: MediaSource? = null
     private var transportFactory: ConfigurableTransportFactory? = null
     private var pendingPairing: PendingPairing? = null
@@ -210,6 +213,11 @@ object AppRuntime {
                 },
                 ownPackageId = appContext.packageName,
             ).also { notificationAgent = it }
+            val mediaRemote = MediaRemoteAgent(
+                context = appContext,
+                scope = ownerScope,
+                send = { safeSend(ChannelId.EVENT, it) },
+            ).also { mediaRemoteAgent = it }
             val androidMedia = AndroidMediaSource(appContext).also { mediaSource = it }
             val media = MediaAgent(
                 source = androidMedia,
@@ -239,6 +247,7 @@ object AppRuntime {
             session.registerHandler(ChannelId.EVENT) { envelope ->
                 when (val message = envelope.payload) {
                     is ClipboardItemMsg -> sync.onRemoteItem(message)
+                    is MediaControl -> mediaRemote.onControl(message)
                     is OpenUrl -> handleOpenUrlFromPeer(appContext, message.url)
                     else -> notifications.onMessage(message)
                 }
@@ -253,6 +262,7 @@ object AppRuntime {
             }
             sync.start(ownerScope)
             notifications.start(ownerScope)
+            mediaRemote.start()
             ownerScope.launch { transfer.transfers.collect { mutableTransfers.value = it } }
             refreshDevices()
             ownerScope.launch {
@@ -268,6 +278,7 @@ object AppRuntime {
                         // A restarted peer's sequence counter starts over; drop the old
                         // replay watermark or its items are silently discarded.
                         sync.onSessionEstablished()
+                        mediaRemote.pushCurrentState()
                         flushQueuedOffers()
                         // The resume-time clipboard read races reconnection: if it lost,
                         // its item was dropped as unsendable. Re-drive it now that the
@@ -523,6 +534,7 @@ object AppRuntime {
         stopScreenshotObserver()
         clipboardSync?.stop()
         notificationAgent?.stop()
+        mediaRemoteAgent?.stop()
         hostServer?.close()
         scope?.cancel()
         mutableReady.value = false

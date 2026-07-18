@@ -209,6 +209,24 @@ class MessagesTest {
     }
 
     @Test
+    fun mediaNowPlayingRoundTrip() {
+        val msg = MediaNowPlaying(
+            appName = "Music",
+            title = "Continuity",
+            artist = "Open Tomac",
+            isPlaying = true,
+            hasSession = true,
+        )
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+    }
+
+    @Test
+    fun mediaControlRoundTrip() {
+        val msg = MediaControl(command = "volume_up")
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+    }
+
+    @Test
     fun notificationPostedRoundTrip() {
         val msg = NotificationPosted(
             key = "0|com.example|1|null|10001",

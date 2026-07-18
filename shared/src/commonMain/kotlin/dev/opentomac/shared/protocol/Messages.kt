@@ -361,6 +361,24 @@ data class ThumbnailResponse(
     override fun hashCode(): Int = 31 * mediaId.hashCode() + jpegBytes.contentHashCode()
 }
 
+// --- Media remote ---
+
+@Serializable
+@SerialName("media_now_playing")
+data class MediaNowPlaying(
+    @ProtoNumber(1) val appName: String,
+    @ProtoNumber(2) val title: String,
+    @ProtoNumber(3) val artist: String,
+    @ProtoNumber(4) val isPlaying: Boolean,
+    @ProtoNumber(5) val hasSession: Boolean,
+) : Message
+
+@Serializable
+@SerialName("media_control")
+data class MediaControl(
+    @ProtoNumber(1) val command: String,
+) : Message
+
 // --- Notifications ---
 
 @Serializable

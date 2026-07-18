@@ -25,6 +25,51 @@ struct DashboardView: View {
                 Text(notice).font(.caption).foregroundStyle(.secondary)
             }
 
+            if model.nowPlaying.hasSession {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Now playing on phone")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(model.nowPlaying.appName)
+                            .font(.callout.weight(.semibold))
+                        Text(model.nowPlaying.artist.isEmpty
+                            ? model.nowPlaying.title
+                            : "\(model.nowPlaying.title) — \(model.nowPlaying.artist)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 12)
+                    HStack(spacing: 4) {
+                        Button { model.mediaControl("previous") } label: {
+                            Image(systemName: "backward.fill")
+                        }
+                        .help("Previous")
+                        Button { model.mediaControl("play_pause") } label: {
+                            Image(systemName: model.nowPlaying.isPlaying ? "pause.fill" : "play.fill")
+                        }
+                        .help(model.nowPlaying.isPlaying ? "Pause" : "Play")
+                        Button { model.mediaControl("next") } label: {
+                            Image(systemName: "forward.fill")
+                        }
+                        .help("Next")
+                        Button { model.mediaControl("volume_down") } label: {
+                            Image(systemName: "speaker.wave.1")
+                        }
+                        .help("Volume down")
+                        Button { model.mediaControl("volume_up") } label: {
+                            Image(systemName: "speaker.wave.3")
+                        }
+                        .help("Volume up")
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                }
+                .padding(10)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            }
+
             HStack(spacing: 8) {
                 Image(systemName: model.notificationsAuthorized == false ? "bell.slash" : "bell")
                     .foregroundStyle(model.notificationsAuthorized == false ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))

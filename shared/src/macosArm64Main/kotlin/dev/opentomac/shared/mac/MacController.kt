@@ -15,7 +15,9 @@ import dev.opentomac.shared.protocol.ChannelId
 import dev.opentomac.shared.protocol.ClipboardItemMsg
 import dev.opentomac.shared.protocol.DuplicatePolicy
 import dev.opentomac.shared.protocol.FileMeta
+import dev.opentomac.shared.protocol.MediaControl
 import dev.opentomac.shared.protocol.MediaFetchRequest
+import dev.opentomac.shared.protocol.MediaNowPlaying
 import dev.opentomac.shared.protocol.Message
 import dev.opentomac.shared.protocol.NotificationPosted
 import dev.opentomac.shared.protocol.OpenUrl
@@ -81,6 +83,7 @@ class MacController(
     private val onTransfers: (List<MacTransfer>) -> Unit,
     private val onPhotos: (List<MacPhoto>) -> Unit,
     private val onOpenUrl: (String) -> Unit,
+    private val onNowPlaying: (String, String, String, Boolean, Boolean) -> Unit,
 ) {
     private val collectedJobs = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -153,6 +156,13 @@ class MacController(
             sessionManager.registerHandler(ChannelId.EVENT) { envelope ->
                 when (val message = envelope.payload) {
                     is ClipboardItemMsg -> clipboardSync.onRemoteItem(message)
+                    is MediaNowPlaying -> onNowPlaying(
+                        message.appName,
+                        message.title,
+                        message.artist,
+                        message.isPlaying,
+                        message.hasSession,
+                    )
                     is OpenUrl -> normalizedWebUrl(message.url)?.let(onOpenUrl)
                     else -> {
                         println("opentomac EVENT: ${message::class.simpleName}")
@@ -340,6 +350,10 @@ class MacController(
     fun openUrlOnPhone(url: String) {
         val normalized = normalizedWebUrl(url) ?: return
         scope.launch { safeSend(ChannelId.EVENT, OpenUrl(normalized)) }
+    }
+
+    fun mediaControl(command: String) {
+        scope.launch { safeSend(ChannelId.EVENT, MediaControl(command)) }
     }
 
     /** Sends an inline reply back to a mirrored phone notification. */

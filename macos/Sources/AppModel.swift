@@ -2,6 +2,14 @@ import Foundation
 import AppKit
 import OpentomacShared
 
+struct NowPlayingState {
+    let appName: String
+    let title: String
+    let artist: String
+    let isPlaying: Bool
+    let hasSession: Bool
+}
+
 /// Bridges the Kotlin `MacController` to SwiftUI. All controller callbacks are
 /// marshaled onto the main queue before touching published state.
 @MainActor
@@ -14,6 +22,13 @@ final class AppModel: ObservableObject {
     @Published var photos: [MacPhoto] = []
     @Published var notificationsAuthorized: Bool?
     @Published var urlNotice: String?
+    @Published var nowPlaying = NowPlayingState(
+        appName: "",
+        title: "",
+        artist: "",
+        isPlaying: false,
+        hasSession: false
+    )
     let protocolVersion: Int32
 
     private var controller: MacController!
@@ -47,6 +62,18 @@ final class AppModel: ObservableObject {
                 Task { @MainActor in
                     guard let url = Self.webURL(from: value) else { return }
                     NSWorkspace.shared.open(url)
+                }
+            },
+            onNowPlaying: { [weak self] appName, title, artist, isPlaying, hasSession in
+                // Kotlin Boolean crosses the bridge boxed as KotlinBoolean.
+                Task { @MainActor in
+                    self?.nowPlaying = NowPlayingState(
+                        appName: appName,
+                        title: title,
+                        artist: artist,
+                        isPlaying: isPlaying.boolValue,
+                        hasSession: hasSession.boolValue
+                    )
                 }
             }
         )
@@ -105,6 +132,8 @@ final class AppModel: ObservableObject {
         controller.openUrlOnPhone(url: url.absoluteString)
         showURLNotice("Link sent to phone")
     }
+
+    func mediaControl(_ command: String) { controller.mediaControl(command: command) }
 
     func cancelTransfer(_ id: String) { controller.cancelTransfer(jobId: id) }
 
