@@ -20,10 +20,6 @@ struct DashboardView: View {
                     openWindow(id: "mirror")
                     if !model.mirrorActive { model.startMirror() }
                 }
-                Button("Webcam preview") {
-                    openWindow(id: "camera")
-                    if !model.cameraActive { model.startCamera() }
-                }
                 Button("Photos") { showPhotos = true }
                 Button("Contacts") { showContacts = true }
                 Button("Messages") { showMessages = true }

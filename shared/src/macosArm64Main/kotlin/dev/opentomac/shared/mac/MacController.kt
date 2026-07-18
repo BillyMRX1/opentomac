@@ -14,11 +14,6 @@ import dev.opentomac.shared.pairing.PersistentTrustStore
 import dev.opentomac.shared.pairing.SystemClock
 import dev.opentomac.shared.pairing.TrustedDevice
 import dev.opentomac.shared.protocol.ChannelId
-import dev.opentomac.shared.protocol.AudioFrame
-import dev.opentomac.shared.protocol.CameraConfig
-import dev.opentomac.shared.protocol.CameraFrame
-import dev.opentomac.shared.protocol.CameraRequest
-import dev.opentomac.shared.protocol.CameraStop
 import dev.opentomac.shared.protocol.ClipboardItemMsg
 import dev.opentomac.shared.protocol.DuplicatePolicy
 import dev.opentomac.shared.protocol.FileMeta
@@ -142,9 +137,6 @@ class MacController(
     private val onVideoConfig: (Int, Int, NSData, NSData, Int) -> Unit,
     private val onVideoFrame: (NSData, Long, Boolean) -> Unit,
     private val onMirrorStopped: (String) -> Unit,
-    private val onCameraConfig: (Int, Int, NSData, NSData, Int) -> Unit,
-    private val onCameraFrame: (NSData, Long, Boolean) -> Unit,
-    private val onCameraStopped: (String) -> Unit,
 ) {
     private val collectedJobs = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -173,9 +165,6 @@ class MacController(
 
     @Volatile
     private var mirrorLive = false
-
-    @Volatile
-    private var cameraLive = false
 
     fun start() {
         // Session-level diagnostics (dropped envelopes, handler exceptions) were
@@ -245,11 +234,6 @@ class MacController(
                         mirrorLive = false
                         onMirrorStopped(message.reason)
                     }
-                    is CameraStop -> {
-                        println("opentomac camera: phone stopped (${message.reason})")
-                        cameraLive = false
-                        onCameraStopped(message.reason)
-                    }
                     else -> {
                         println("opentomac EVENT: ${message::class.simpleName}")
                         notifications.onMessage(message)
@@ -282,25 +266,6 @@ class MacController(
                         )
                     }
                     is VideoFrame -> onVideoFrame(message.data.toNSData(), message.ptsUs, message.keyframe)
-                    is CameraConfig -> {
-                        println(
-                            "opentomac camera: video ${message.width}x${message.height} " +
-                                "at ${message.frameRate} fps",
-                        )
-                        cameraLive = true
-                        onCameraConfig(
-                            message.width,
-                            message.height,
-                            message.csd0.toNSData(),
-                            message.csd1.toNSData(),
-                            message.frameRate,
-                        )
-                    }
-                    is CameraFrame -> onCameraFrame(message.data.toNSData(), message.ptsUs, message.keyframe)
-                    // Audio is intentionally not played in the preview (that would feed
-                    // the phone microphone back through Mac speakers). ADTS AAC frames
-                    // are received here for the signed extension bridge milestone.
-                    is AudioFrame -> Unit
                     else -> println("opentomac VIDEO: ${message::class.simpleName}")
                 }
             }
@@ -317,10 +282,6 @@ class MacController(
                     if (state !is ConnectionState.Connected && mirrorLive) {
                         mirrorLive = false
                         onMirrorStopped("disconnected")
-                    }
-                    if (state !is ConnectionState.Connected && cameraLive) {
-                        cameraLive = false
-                        onCameraStopped("disconnected")
                     }
                     onState(state.describe())
                 }
@@ -513,20 +474,6 @@ class MacController(
         println("opentomac mirror: stopping at Mac request")
         mirrorLive = false
         scope.launch { safeSend(ChannelId.EVENT, MirrorStop("mac stopped")) }
-    }
-
-    /** Requests the front/back phone camera and optional mono AAC microphone stream. */
-    fun requestCamera(facing: String, withAudio: Boolean) {
-        require(facing == "front" || facing == "back") { "Camera facing must be front or back" }
-        println("opentomac camera: requesting $facing camera, audio=$withAudio")
-        scope.launch { safeSend(ChannelId.EVENT, CameraRequest(facing, withAudio)) }
-    }
-
-    /** Stops the current phone camera stream. */
-    fun stopCamera() {
-        println("opentomac camera: stopping at Mac request")
-        cameraLive = false
-        scope.launch { safeSend(ChannelId.EVENT, CameraStop("mac stopped")) }
     }
 
     fun sendInputTap(x: Float, y: Float) {

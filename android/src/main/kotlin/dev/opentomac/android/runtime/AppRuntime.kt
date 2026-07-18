@@ -1,13 +1,11 @@
 package dev.opentomac.android.runtime
 
-import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.net.Uri
 import android.os.Build
@@ -18,7 +16,6 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import dev.opentomac.android.R
@@ -30,7 +27,6 @@ import dev.opentomac.android.platform.AndroidMessagingSource
 import dev.opentomac.android.platform.AndroidNotificationSource
 import dev.opentomac.android.platform.MediaRemoteAgent
 import dev.opentomac.android.service.MirroringService
-import dev.opentomac.android.service.CameraService
 import dev.opentomac.android.service.OpentomacControlService
 import dev.opentomac.shared.clipboard.ClipboardSync
 import dev.opentomac.shared.contacts.ContactsAgent
@@ -46,8 +42,6 @@ import dev.opentomac.shared.pairing.PersistentTrustStore
 import dev.opentomac.shared.pairing.SystemClock
 import dev.opentomac.shared.pairing.TrustedDevice
 import dev.opentomac.shared.protocol.ChannelId
-import dev.opentomac.shared.protocol.CameraRequest
-import dev.opentomac.shared.protocol.CameraStop
 import dev.opentomac.shared.protocol.ClipboardItemMsg
 import dev.opentomac.shared.protocol.DuplicatePolicy
 import dev.opentomac.shared.protocol.FileMeta
@@ -110,8 +104,6 @@ object AppRuntime {
     private const val LINKS_CHANNEL_ID = "opentomac_links"
     private const val MIRROR_REQUESTS_CHANNEL_ID = "opentomac_mirror_requests"
     private const val MIRROR_REQUEST_NOTIFICATION_ID = 1003
-    private const val CAMERA_REQUESTS_CHANNEL_ID = "opentomac_camera_requests"
-    private const val CAMERA_REQUEST_NOTIFICATION_ID = 1005
     private const val DEFAULT_MIRROR_MAX_LONG_EDGE = 1280
     private const val DEFAULT_MIRROR_BITRATE_BPS = 6_000_000
     private const val CAPTURE_STOP_SEND_TIMEOUT_MS = 1_000L
@@ -119,9 +111,6 @@ object AppRuntime {
     const val EXTRA_REQUEST_MIRROR_CONSENT = "request_mirror_consent"
     const val EXTRA_MIRROR_MAX_LONG_EDGE = "mirror_max_long_edge"
     const val EXTRA_MIRROR_BITRATE_BPS = "mirror_bitrate_bps"
-    const val EXTRA_REQUEST_CAMERA = "request_camera"
-    const val EXTRA_CAMERA_FACING = "camera_facing"
-    const val EXTRA_CAMERA_WITH_AUDIO = "camera_with_audio"
 
     private val initMutex = Mutex()
     private var initialized = false
@@ -154,8 +143,6 @@ object AppRuntime {
     @Volatile
     private var mirroringServiceStopper: ((String, Boolean) -> Deferred<Unit>)? = null
     @Volatile
-    private var cameraServiceStopper: ((String, Boolean) -> Deferred<Unit>)? = null
-    @Volatile
     private var pendingMirrorQuality = MirrorQuality()
     private val captureState = AtomicReference(CaptureState())
     private val captureStatePublishLock = Any()
@@ -183,9 +170,6 @@ object AppRuntime {
 
     private val mutableMirroring = MutableStateFlow(false)
     val mirroring: StateFlow<Boolean> = mutableMirroring.asStateFlow()
-
-    private val mutableCameraStreaming = MutableStateFlow(false)
-    val cameraStreaming: StateFlow<Boolean> = mutableCameraStreaming.asStateFlow()
 
     private val mutableMediaItems = MutableStateFlow<List<MediaItem>>(emptyList())
     val mediaItems: StateFlow<List<MediaItem>> = mutableMediaItems.asStateFlow()
@@ -320,12 +304,6 @@ object AppRuntime {
                             .cancel(MIRROR_REQUEST_NOTIFICATION_ID)
                         stopMirroringAndWait(message.reason, notifyPeer = false)
                     }
-                    is CameraRequest -> handleCameraRequest(appContext, message)
-                    is CameraStop -> {
-                        appContext.getSystemService(NotificationManager::class.java)
-                            .cancel(CAMERA_REQUEST_NOTIFICATION_ID)
-                        stopCameraAndWait(message.reason, notifyPeer = false)
-                    }
                     is InputTap,
                     is InputSwipe,
                     is InputKey,
@@ -373,10 +351,8 @@ object AppRuntime {
                         }
                     } else {
                         mutableMirrorConsentRequested.value = false
-                        when (captureState.get().mode) {
-                            CaptureMode.MIRROR -> stopMirroringAndWait("Connection lost", notifyPeer = false)
-                            CaptureMode.CAMERA -> stopCameraAndWait("Connection lost", notifyPeer = false)
-                            CaptureMode.NONE -> Unit
+                        if (captureState.get().mode == CaptureMode.MIRROR) {
+                            stopMirroringAndWait("Connection lost", notifyPeer = false)
                         }
                     }
                 }
@@ -412,10 +388,8 @@ object AppRuntime {
 
     suspend fun disconnect() {
         try {
-            when (captureState.get().mode) {
-                CaptureMode.MIRROR -> stopMirroringAndWait("Disconnected", notifyPeer = true)
-                CaptureMode.CAMERA -> stopCameraAndWait("Disconnected", notifyPeer = true)
-                CaptureMode.NONE -> Unit
+            if (captureState.get().mode == CaptureMode.MIRROR) {
+                stopMirroringAndWait("Disconnected", notifyPeer = true)
             }
         } finally {
             sessionManager?.disconnect()
@@ -430,7 +404,7 @@ object AppRuntime {
             return
         }
         if (!tryAcquireCapture(CaptureMode.MIRROR)) {
-            mutableNotice.value = captureConflictNotice(CaptureMode.MIRROR)
+            mutableNotice.value = "Screen mirroring is already starting or active"
             scope?.launch { sendStopWithTimeout(ChannelId.EVENT, MirrorStop("Another capture is active")) }
             return
         }
@@ -513,62 +487,6 @@ object AppRuntime {
     }
 
     internal suspend fun sendMirrorMessage(channel: ChannelId, message: Message) {
-        safeSend(channel, message)
-    }
-
-    fun startCamera(facing: String = "front", withAudio: Boolean = true) {
-        val context = appContext
-        if (context == null || connectionState.value !is ConnectionState.Connected) {
-            mutableNotice.value = "Not connected to a device"
-            return
-        }
-        if (!hasCameraPermissions(context, withAudio)) {
-            mutableNotice.value = if (withAudio) {
-                "Camera and microphone permissions are required"
-            } else {
-                "Camera permission is required"
-            }
-            scope?.launch { sendStopWithTimeout(ChannelId.EVENT, CameraStop("Camera permission not granted")) }
-            return
-        }
-        if (!tryAcquireCapture(CaptureMode.CAMERA)) {
-            mutableNotice.value = captureConflictNotice(CaptureMode.CAMERA)
-            scope?.launch { sendStopWithTimeout(ChannelId.EVENT, CameraStop("Another capture is active")) }
-            return
-        }
-        runCatching { CameraService.start(context, facing, withAudio) }
-            .onFailure {
-                releaseCapture(CaptureMode.CAMERA)
-                Log.w("opentomac", "could not launch camera service", it)
-                mutableNotice.value = "Could not start camera: ${it.userMessage()}"
-                scope?.launch { sendStopWithTimeout(ChannelId.EVENT, CameraStop("Could not start camera")) }
-            }
-    }
-
-    fun stopCamera() {
-        scope?.launch { stopCameraAndWait("Stopped on phone", notifyPeer = true) }
-    }
-
-    internal fun attachCameraService(stopper: (String, Boolean) -> Deferred<Unit>) {
-        cameraServiceStopper = stopper
-    }
-
-    internal fun detachCameraService() {
-        cameraServiceStopper = null
-    }
-
-    internal fun activateCameraCapture(): Boolean =
-        transitionCapture(CaptureMode.CAMERA, CapturePhase.STARTING, CapturePhase.ACTIVE)
-
-    internal fun beginCameraCleanup() {
-        beginCaptureCleanup(CaptureMode.CAMERA)
-    }
-
-    internal fun releaseCameraCapture() {
-        releaseCapture(CaptureMode.CAMERA)
-    }
-
-    internal suspend fun sendCameraMessage(channel: ChannelId, message: Message) {
         safeSend(channel, message)
     }
 
@@ -781,22 +699,12 @@ object AppRuntime {
 
     fun shutdown() {
         initialized = false
-        when (captureState.get().mode) {
-            CaptureMode.MIRROR -> {
-                beginMirroringCleanup()
-                if (mirroringServiceStopper?.invoke("App shutting down", true) == null) {
-                    appContext?.stopService(Intent(appContext, MirroringService::class.java))
-                    releaseMirroringCapture()
-                }
+        if (captureState.get().mode == CaptureMode.MIRROR) {
+            beginMirroringCleanup()
+            if (mirroringServiceStopper?.invoke("App shutting down", true) == null) {
+                appContext?.stopService(Intent(appContext, MirroringService::class.java))
+                releaseMirroringCapture()
             }
-            CaptureMode.CAMERA -> {
-                beginCameraCleanup()
-                if (cameraServiceStopper?.invoke("App shutting down", true) == null) {
-                    appContext?.stopService(Intent(appContext, CameraService::class.java))
-                    releaseCameraCapture()
-                }
-            }
-            CaptureMode.NONE -> Unit
         }
         stopScreenshotObserver()
         clipboardSync?.stop()
@@ -821,22 +729,6 @@ object AppRuntime {
                 releaseMirroringCapture()
             }
             if (notifyPeer) sendStopWithTimeout(ChannelId.EVENT, MirrorStop(reason))
-        }
-    }
-
-    private suspend fun stopCameraAndWait(reason: String, notifyPeer: Boolean) {
-        if (captureState.get().mode != CaptureMode.CAMERA) return
-        beginCameraCleanup()
-        val stopper = cameraServiceStopper
-        if (stopper != null) {
-            stopper(reason, notifyPeer).await()
-        } else {
-            try {
-                appContext?.stopService(Intent(appContext, CameraService::class.java))
-            } finally {
-                releaseCameraCapture()
-            }
-            if (notifyPeer) sendStopWithTimeout(ChannelId.EVENT, CameraStop(reason))
         }
     }
 
@@ -896,22 +788,7 @@ object AppRuntime {
         synchronized(captureStatePublishLock) {
             val current = captureState.get()
             mutableMirroring.value = current.mode == CaptureMode.MIRROR
-            mutableCameraStreaming.value = current.mode == CaptureMode.CAMERA
         }
-    }
-
-    private fun captureConflictNotice(requested: CaptureMode): String = when (captureState.get().mode) {
-        CaptureMode.MIRROR -> if (requested == CaptureMode.CAMERA) {
-            "Stop screen mirroring before using the webcam"
-        } else {
-            "Screen mirroring is already starting or active"
-        }
-        CaptureMode.CAMERA -> if (requested == CaptureMode.MIRROR) {
-            "Stop the webcam before starting screen mirroring"
-        } else {
-            "The webcam is already starting or active"
-        }
-        CaptureMode.NONE -> "Another capture is stopping"
     }
 
     private suspend fun sendStopWithTimeout(channel: ChannelId, message: Message) {
@@ -1120,7 +997,7 @@ object AppRuntime {
 
     private fun handleMirrorRequest(context: Context, request: MirrorRequest) {
         if (captureState.get().mode != CaptureMode.NONE) {
-            mutableNotice.value = captureConflictNotice(CaptureMode.MIRROR)
+            mutableNotice.value = "Screen mirroring is already starting or active"
             scope?.launch { sendStopWithTimeout(ChannelId.EVENT, MirrorStop("Another capture is active")) }
             return
         }
@@ -1170,92 +1047,6 @@ object AppRuntime {
             .onFailure { Log.w("opentomac", "could not post screen mirror consent notification", it) }
     }
 
-    private fun handleCameraRequest(context: Context, request: CameraRequest) {
-        if (request.facing != "front" && request.facing != "back") {
-            scope?.launch { sendStopWithTimeout(ChannelId.EVENT, CameraStop("Unsupported camera facing")) }
-            return
-        }
-        if (captureState.get().mode != CaptureMode.NONE) {
-            mutableNotice.value = captureConflictNotice(CaptureMode.CAMERA)
-            scope?.launch { sendStopWithTimeout(ChannelId.EVENT, CameraStop("Another capture is active")) }
-            return
-        }
-        val foreground = ProcessLifecycleOwner.get().lifecycle.currentState
-            .isAtLeast(Lifecycle.State.STARTED)
-        if (foreground) {
-            mutableNotice.value = "Mac requested the phone camera"
-            startCamera(request.facing, request.withAudio)
-            return
-        }
-
-        val manager = context.getSystemService(NotificationManager::class.java)
-        val canSurfaceConsent = runCatching {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CAMERA_REQUESTS_CHANNEL_ID,
-                    "Camera requests",
-                    NotificationManager.IMPORTANCE_HIGH,
-                ),
-            )
-            val requestChannel = manager.getNotificationChannel(CAMERA_REQUESTS_CHANNEL_ID)
-            manager.areNotificationsEnabled() &&
-                requestChannel != null &&
-                requestChannel.importance != NotificationManager.IMPORTANCE_NONE
-        }.onFailure { cause ->
-            Log.w("opentomac", "could not inspect camera request notification availability", cause)
-        }.getOrDefault(false)
-        if (!canSurfaceConsent) {
-            cameraConsentUnavailable()
-            return
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            0,
-            Intent(context, dev.opentomac.android.ui.MainActivity::class.java).apply {
-                putExtra(EXTRA_REQUEST_CAMERA, true)
-                putExtra(EXTRA_CAMERA_FACING, request.facing)
-                putExtra(EXTRA_CAMERA_WITH_AUDIO, request.withAudio)
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
-                )
-            },
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val notification = NotificationCompat.Builder(context, CAMERA_REQUESTS_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_tile_clipboard)
-            .setContentTitle("Use phone as Mac webcam")
-            .setContentText("Tap to start camera${if (request.withAudio) " and microphone" else ""}")
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
-        runCatching { manager.notify(CAMERA_REQUEST_NOTIFICATION_ID, notification) }
-            .onFailure { cause ->
-                Log.w("opentomac", "could not post camera request notification", cause)
-                cameraConsentUnavailable()
-            }
-    }
-
-    private fun cameraConsentUnavailable() {
-        mutableNotice.value = "Enable opentomac notifications so Mac camera requests can be approved"
-        scope?.launch {
-            sendStopWithTimeout(
-                ChannelId.EVENT,
-                CameraStop("Cannot request camera: enable notifications"),
-            )
-        }
-    }
-
-    private fun hasCameraPermissions(context: Context, withAudio: Boolean): Boolean =
-        ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-            (!withAudio || ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.RECORD_AUDIO,
-            ) == PackageManager.PERMISSION_GRANTED)
-
     private data class MirrorQuality(
         val maxLongEdge: Int = DEFAULT_MIRROR_MAX_LONG_EDGE,
         val bitrateBps: Int = DEFAULT_MIRROR_BITRATE_BPS,
@@ -1266,7 +1057,7 @@ object AppRuntime {
         }
     }
 
-    internal enum class CaptureMode { NONE, MIRROR, CAMERA }
+    internal enum class CaptureMode { NONE, MIRROR }
 
     private enum class CapturePhase { IDLE, STARTING, ACTIVE, STOPPING }
 

@@ -10,7 +10,6 @@ androidx-core = "1.16.0"
 androidx-activity = "1.10.1"
 androidx-lifecycle = "2.9.0"
 androidx-security = "1.1.0-alpha06"
-androidx-camera = "1.4.2"
 compose-bom = "2025.04.01"
 zxing-embedded = "4.3.0"
 
@@ -28,9 +27,6 @@ androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtim
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
 androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "androidx-lifecycle" }
 androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "androidx-security" }
-androidx-camera-core = { module = "androidx.camera:camera-core", version.ref = "androidx-camera" }
-androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "androidx-camera" }
-androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "androidx-camera" }
 androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
 androidx-compose-ui = { module = "androidx.compose.ui:ui" }
 androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }

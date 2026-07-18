@@ -66,10 +66,6 @@ final class AppModel: ObservableObject {
     @Published var mirrorConfigured = false
     @Published var mirrorStoppedReason: String?
     @Published var mirrorVideoSize: CGSize?
-    @Published var cameraActive = false
-    @Published var cameraConfigured = false
-    @Published var cameraStoppedReason: String?
-    @Published var cameraVideoSize: CGSize?
     @Published private(set) var mirrorQuality: MirrorQualityPreset
     @Published var nowPlaying = NowPlayingState(
         appName: "",
@@ -80,12 +76,10 @@ final class AppModel: ObservableObject {
     )
     let protocolVersion: Int32
     let videoRenderer: VideoRenderer
-    let cameraRenderer: VideoRenderer
 
     private var controller: MacController!
     private let notifier = NotificationBridge()
     private var mirrorRestartTask: Task<Void, Never>?
-    private var cameraRestartTask: Task<Void, Never>?
     private var requestedSmsThreadId: String?
     private var smsGeneration = 0
     private var callGeneration = 0
@@ -97,9 +91,7 @@ final class AppModel: ObservableObject {
             ?? .balanced
         protocolVersion = ProtocolCodec.shared.PROTOCOL_VERSION
         videoRenderer = VideoRenderer()
-        cameraRenderer = VideoRenderer()
         let renderer = videoRenderer
-        let cameraRenderer = cameraRenderer
         controller = MacController(
             onState: { [weak self] status in
                 Task { @MainActor in self?.connectionStatus = status }
@@ -178,39 +170,6 @@ final class AppModel: ObservableObject {
                     self?.mirrorActive = false
                     self?.mirrorConfigured = false
                     self?.mirrorStoppedReason = reason
-                }
-            },
-            onCameraConfig: { [weak self] width, height, sps, pps, frameRate in
-                cameraRenderer.configure(
-                    width: Int(width.int32Value),
-                    height: Int(height.int32Value),
-                    sps: sps,
-                    pps: pps,
-                    frameRate: Int(frameRate.int32Value)
-                )
-                Task { @MainActor in
-                    guard self?.cameraActive == true else { return }
-                    self?.cameraVideoSize = CGSize(
-                        width: Int(width.int32Value),
-                        height: Int(height.int32Value)
-                    )
-                    self?.cameraConfigured = true
-                    self?.cameraStoppedReason = nil
-                }
-            },
-            onCameraFrame: { data, ptsUs, keyframe in
-                cameraRenderer.enqueue(
-                    data: data,
-                    ptsUs: ptsUs.int64Value,
-                    keyframe: keyframe.boolValue
-                )
-            },
-            onCameraStopped: { [weak self] reason in
-                cameraRenderer.reset()
-                Task { @MainActor in
-                    self?.cameraActive = false
-                    self?.cameraConfigured = false
-                    self?.cameraStoppedReason = reason
                 }
             }
         )
@@ -355,7 +314,6 @@ final class AppModel: ObservableObject {
     func mediaControl(_ command: String) { controller.mediaControl(command: command) }
 
     func startMirror() {
-        if cameraActive || cameraConfigured || cameraRestartTask != nil { stopCamera() }
         mirrorRestartTask?.cancel()
         mirrorRestartTask = nil
         videoRenderer.reset()
@@ -376,44 +334,6 @@ final class AppModel: ObservableObject {
         videoRenderer.reset()
         mirrorActive = false
         mirrorConfigured = false
-    }
-
-    func startCamera(facing: String = "front", withAudio: Bool = true) {
-        if mirrorActive { stopMirror() }
-        cameraRestartTask?.cancel()
-        cameraRestartTask = nil
-        if cameraActive || cameraConfigured {
-            controller.stopCamera()
-            cameraRenderer.reset()
-            cameraActive = false
-            cameraConfigured = false
-            cameraRestartTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                guard !Task.isCancelled, let self else { return }
-                self.cameraRestartTask = nil
-                self.beginCamera(facing: facing, withAudio: withAudio)
-            }
-            return
-        }
-        beginCamera(facing: facing, withAudio: withAudio)
-    }
-
-    private func beginCamera(facing: String, withAudio: Bool) {
-        cameraRenderer.reset()
-        cameraActive = true
-        cameraConfigured = false
-        cameraStoppedReason = nil
-        controller.requestCamera(facing: facing, withAudio: withAudio)
-    }
-
-    func stopCamera() {
-        cameraRestartTask?.cancel()
-        cameraRestartTask = nil
-        guard cameraActive || cameraConfigured else { return }
-        controller.stopCamera()
-        cameraRenderer.reset()
-        cameraActive = false
-        cameraConfigured = false
     }
 
     func sendMirrorTap(x: CGFloat, y: CGFloat) {

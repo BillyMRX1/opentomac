@@ -267,56 +267,6 @@ class MessagesTest {
     }
 
     @Test
-    fun cameraRequestRoundTrip() {
-        val msg = CameraRequest(facing = "front", withAudio = true)
-        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
-    }
-
-    @Test
-    fun cameraStopRoundTrip() {
-        val msg = CameraStop(reason = "Stopped by peer")
-        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
-    }
-
-    @Test
-    fun cameraConfigRoundTrip() {
-        val msg = CameraConfig(
-            width = 1280,
-            height = 720,
-            csd0 = byteArrayOf(0, 0, 0, 1, 0x67),
-            csd1 = byteArrayOf(0, 0, 0, 1, 0x68),
-            frameRate = 30,
-        )
-        val decoded = assertIs<CameraConfig>(roundTrip(msg, channel = ChannelId.VIDEO))
-        assertContentEquals(msg.csd0, decoded.csd0)
-        assertContentEquals(msg.csd1, decoded.csd1)
-        assertEquals(msg, decoded)
-    }
-
-    @Test
-    fun cameraFrameRoundTrip() {
-        val msg = CameraFrame(
-            ptsUs = 66_666,
-            keyframe = false,
-            data = ByteArray(3072) { (it % 239).toByte() },
-        )
-        val decoded = assertIs<CameraFrame>(roundTrip(msg, channel = ChannelId.VIDEO))
-        assertContentEquals(msg.data, decoded.data)
-        assertEquals(msg, decoded)
-    }
-
-    @Test
-    fun audioFrameRoundTrip() {
-        val msg = AudioFrame(
-            ptsUs = 23_219,
-            data = byteArrayOf(0xFF.toByte(), 0xF1.toByte(), 0x50, 0x40, 0x01, 0x7F, 0xFC.toByte(), 1, 2),
-        )
-        val decoded = assertIs<AudioFrame>(roundTrip(msg, channel = ChannelId.VIDEO))
-        assertContentEquals(msg.data, decoded.data)
-        assertEquals(msg, decoded)
-    }
-
-    @Test
     fun inputTapRoundTrip() {
         val msg = InputTap(x = 0.25f, y = 0.75f)
         assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
