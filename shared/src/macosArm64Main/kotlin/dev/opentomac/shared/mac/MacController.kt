@@ -20,10 +20,14 @@ import dev.opentomac.shared.protocol.MediaControl
 import dev.opentomac.shared.protocol.MediaFetchRequest
 import dev.opentomac.shared.protocol.MediaNowPlaying
 import dev.opentomac.shared.protocol.Message
+import dev.opentomac.shared.protocol.MirrorRequest
+import dev.opentomac.shared.protocol.MirrorStop
 import dev.opentomac.shared.protocol.NotificationPosted
 import dev.opentomac.shared.protocol.OpenUrl
 import dev.opentomac.shared.protocol.RevokeDevice
 import dev.opentomac.shared.protocol.ScreenshotTaken
+import dev.opentomac.shared.protocol.VideoConfig
+import dev.opentomac.shared.protocol.VideoFrame
 import dev.opentomac.shared.session.ConnectionState
 import dev.opentomac.shared.session.SessionLog
 import dev.opentomac.shared.session.SessionManager
@@ -36,6 +40,8 @@ import dev.opentomac.shared.transport.TcpServer
 import dev.opentomac.shared.transport.TcpTransportFactory
 import dev.opentomac.shared.protocol.FrameTransport
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,6 +53,8 @@ import okio.FileSystem
 import okio.Path.Companion.toPath
 import platform.Foundation.NSHomeDirectory
 import platform.Foundation.NSHost
+import platform.Foundation.NSData
+import platform.Foundation.create
 
 /** Pairing progress surfaced to the Swift UI. */
 data class MacPairingState(
@@ -81,7 +89,7 @@ data class MacContact(
  * Kotlin orchestrator for the macOS app. It owns the identity, trust store, session,
  * and feature engines, keeping all coroutine, Flow, and suspend interaction in Kotlin
  * and exposing a plain callback API to SwiftUI. Callbacks may fire on a background
- * thread; the Swift layer marshals them to the main queue.
+ * thread; the Swift layer routes UI state to main and video to its renderer queue.
  */
 @OptIn(ExperimentalForeignApi::class, ExperimentalEncodingApi::class)
 class MacController(
@@ -94,6 +102,9 @@ class MacController(
     private val onOpenUrl: (String) -> Unit,
     private val onNowPlaying: (String, String, String, Boolean, Boolean) -> Unit,
     private val onScreenshotTaken: (String, String) -> Unit,
+    private val onVideoConfig: (Int, Int, NSData, NSData, Int) -> Unit,
+    private val onVideoFrame: (NSData, Long, Boolean) -> Unit,
+    private val onMirrorStopped: (String) -> Unit,
 ) {
     private val collectedJobs = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -117,6 +128,9 @@ class MacController(
 
     @Volatile
     private var hostingActive = false
+
+    @Volatile
+    private var mirrorLive = false
 
     fun start() {
         // Session-level diagnostics (dropped envelopes, handler exceptions) were
@@ -177,6 +191,11 @@ class MacController(
                     )
                     is OpenUrl -> normalizedWebUrl(message.url)?.let(onOpenUrl)
                     is ScreenshotTaken -> onScreenshotTaken(message.mediaId, message.name)
+                    is MirrorStop -> {
+                        println("opentomac mirror: phone stopped (${message.reason})")
+                        mirrorLive = false
+                        onMirrorStopped(message.reason)
+                    }
                     else -> {
                         println("opentomac EVENT: ${message::class.simpleName}")
                         notifications.onMessage(message)
@@ -191,6 +210,26 @@ class MacController(
                 mediaBrowser.onMessage(envelope.payload)
                 contactsCompanion.onMessage(envelope.payload)
             }
+            sessionManager.registerHandler(ChannelId.VIDEO) { envelope ->
+                when (val message = envelope.payload) {
+                    is VideoConfig -> {
+                        println(
+                            "opentomac mirror: video ${message.width}x${message.height} " +
+                                "at ${message.frameRate} fps",
+                        )
+                        mirrorLive = true
+                        onVideoConfig(
+                            message.width,
+                            message.height,
+                            message.csd0.toNSData(),
+                            message.csd1.toNSData(),
+                            message.frameRate,
+                        )
+                    }
+                    is VideoFrame -> onVideoFrame(message.data.toNSData(), message.ptsUs, message.keyframe)
+                    else -> println("opentomac VIDEO: ${message::class.simpleName}")
+                }
+            }
 
             clipboardSync.start(scope)
             refreshDevices()
@@ -199,6 +238,12 @@ class MacController(
                     // A restarted phone's sequence counter starts over; drop the old
                     // replay watermark or its items are silently discarded.
                     if (state is ConnectionState.Connected) clipboardSync.onSessionEstablished()
+                    // A dropped session cannot deliver MirrorStop: end the viewer
+                    // locally or it freezes on the last frame claiming to be live.
+                    if (state !is ConnectionState.Connected && mirrorLive) {
+                        mirrorLive = false
+                        onMirrorStopped("disconnected")
+                    }
                     onState(state.describe())
                 }
             }
@@ -370,6 +415,18 @@ class MacController(
         scope.launch { safeSend(ChannelId.EVENT, MediaControl(command)) }
     }
 
+    /** Asks the connected Android device to begin a MediaProjection mirror session. */
+    fun requestMirror() {
+        println("opentomac mirror: requesting phone screen")
+        scope.launch { safeSend(ChannelId.EVENT, MirrorRequest(SystemClock.nowMs())) }
+    }
+
+    /** Stops the current mirror session on the connected Android device. */
+    fun stopMirror() {
+        println("opentomac mirror: stopping at Mac request")
+        scope.launch { safeSend(ChannelId.EVENT, MirrorStop("mac stopped")) }
+    }
+
     /** Sends an inline reply back to a mirrored phone notification. */
     fun replyToNotification(key: String, actionIndex: Int, text: String) {
         scope.launch { notifications.sendAction(key, actionIndex, text) }
@@ -461,6 +518,13 @@ class MacController(
 
     private fun receiveDirectory() =
         "${NSHomeDirectory()}/Downloads/opentomac".toPath()
+
+    private fun ByteArray.toNSData(): NSData {
+        if (isEmpty()) return NSData()
+        return usePinned { pinned ->
+            NSData.create(bytes = pinned.addressOf(0), length = size.toULong())
+        }
+    }
 
     private fun localAddresses(): List<String> {
         val addresses = NSHost.currentHost().addresses()

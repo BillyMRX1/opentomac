@@ -10,8 +10,9 @@ struct NowPlayingState {
     let hasSession: Bool
 }
 
-/// Bridges the Kotlin `MacController` to SwiftUI. All controller callbacks are
-/// marshaled onto the main queue before touching published state.
+/// Bridges the Kotlin `MacController` to SwiftUI. Controller callbacks are
+/// marshaled onto the main queue before touching published state; video frames
+/// go directly to the renderer's serial queue.
 @MainActor
 final class AppModel: ObservableObject {
     @Published var connectionStatus: String = "Starting"
@@ -23,6 +24,9 @@ final class AppModel: ObservableObject {
     @Published var contacts: [MacContact] = []
     @Published var contactsGranted = true
     @Published var notificationsAuthorized: Bool?
+    @Published var mirrorActive = false
+    @Published var mirrorConfigured = false
+    @Published var mirrorStoppedReason: String?
     @Published var nowPlaying = NowPlayingState(
         appName: "",
         title: "",
@@ -31,12 +35,15 @@ final class AppModel: ObservableObject {
         hasSession: false
     )
     let protocolVersion: Int32
+    let videoRenderer: VideoRenderer
 
     private var controller: MacController!
     private let notifier = NotificationBridge()
 
     init() {
         protocolVersion = ProtocolCodec.shared.PROTOCOL_VERSION
+        videoRenderer = VideoRenderer()
+        let renderer = videoRenderer
         controller = MacController(
             onState: { [weak self] status in
                 Task { @MainActor in self?.connectionStatus = status }
@@ -80,6 +87,35 @@ final class AppModel: ObservableObject {
             onScreenshotTaken: { [weak self] mediaId, name in
                 Task { @MainActor in
                     self?.notifier.presentScreenshot(name: name, mediaId: mediaId)
+                }
+            },
+            onVideoConfig: { [weak self] width, height, sps, pps, frameRate in
+                renderer.configure(
+                    width: Int(width.int32Value),
+                    height: Int(height.int32Value),
+                    sps: sps,
+                    pps: pps,
+                    frameRate: Int(frameRate.int32Value)
+                )
+                Task { @MainActor in
+                    guard self?.mirrorActive == true else { return }
+                    self?.mirrorConfigured = true
+                    self?.mirrorStoppedReason = nil
+                }
+            },
+            onVideoFrame: { data, ptsUs, keyframe in
+                renderer.enqueue(
+                    data: data,
+                    ptsUs: ptsUs.int64Value,
+                    keyframe: keyframe.boolValue
+                )
+            },
+            onMirrorStopped: { [weak self] reason in
+                renderer.reset()
+                Task { @MainActor in
+                    self?.mirrorActive = false
+                    self?.mirrorConfigured = false
+                    self?.mirrorStoppedReason = reason
                 }
             }
         )
@@ -139,6 +175,22 @@ final class AppModel: ObservableObject {
     }
 
     func mediaControl(_ command: String) { controller.mediaControl(command: command) }
+
+    func startMirror() {
+        videoRenderer.reset()
+        mirrorActive = true
+        mirrorConfigured = false
+        mirrorStoppedReason = nil
+        controller.requestMirror()
+    }
+
+    func stopMirror() {
+        guard mirrorActive || mirrorConfigured else { return }
+        controller.stopMirror()
+        videoRenderer.reset()
+        mirrorActive = false
+        mirrorConfigured = false
+    }
 
     func cancelTransfer(_ id: String) { controller.cancelTransfer(jobId: id) }
 
