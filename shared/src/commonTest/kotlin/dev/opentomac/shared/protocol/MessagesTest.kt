@@ -342,6 +342,90 @@ class MessagesTest {
     }
 
     @Test
+    fun smsThreadsRequestRoundTrip() {
+        val msg = SmsThreadsRequest(limit = 40)
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.BULK))
+    }
+
+    @Test
+    fun smsThreadsResponseRoundTrip() {
+        val msg = SmsThreadsResponse(
+            threads = listOf(
+                SmsThread(
+                    threadId = "17",
+                    address = "+81 90 1234 5678",
+                    contactName = "Mina",
+                    snippet = "See you soon",
+                    dateMs = 1_721_111_222_333,
+                    unread = true,
+                ),
+            ),
+            granted = false,
+        )
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.BULK))
+    }
+
+    @Test
+    fun smsThreadRequestRoundTrip() {
+        val msg = SmsThreadRequest(threadId = "17", limit = 100)
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.BULK))
+    }
+
+    @Test
+    fun smsThreadResponseRoundTrip() {
+        val msg = SmsThreadResponse(
+            threadId = "17",
+            address = "+81 90 1234 5678",
+            messages = listOf(
+                SmsMessage("Are you nearby?", 1_721_111_200_000, incoming = true),
+                SmsMessage("See you soon", 1_721_111_222_333, incoming = false),
+            ),
+            granted = true,
+        )
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.BULK))
+    }
+
+    @Test
+    fun smsSendRequestRoundTrip() {
+        val msg = SmsSendRequest(address = "+81 90 1234 5678", body = "On my way", id = "sms-op-1")
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.BULK))
+    }
+
+    @Test
+    fun smsSendResultRoundTrip() {
+        val msg = SmsSendResult(
+            address = "+81 90 1234 5678",
+            sent = false,
+            error = "No service",
+            id = "sms-op-1",
+        )
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.BULK))
+    }
+
+    @Test
+    fun callLogRequestRoundTrip() {
+        val msg = CallLogRequest(limit = 50)
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.BULK))
+    }
+
+    @Test
+    fun callLogResponseRoundTrip() {
+        val msg = CallLogResponse(
+            entries = listOf(
+                CallLogEntry(
+                    number = "+44 20 7946 0958",
+                    contactName = "Ada Lovelace",
+                    type = "incoming",
+                    dateMs = 1_721_222_333_444,
+                    durationSec = 83,
+                ),
+            ),
+            granted = false,
+        )
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.BULK))
+    }
+
+    @Test
     fun notificationPostedRoundTrip() {
         val msg = NotificationPosted(
             key = "0|com.example|1|null|10001",

@@ -23,6 +23,7 @@ import dev.opentomac.android.platform.AndroidClipboard
 import dev.opentomac.android.platform.AndroidContactsSource
 import dev.opentomac.android.platform.AndroidKeyValueStore
 import dev.opentomac.android.platform.AndroidMediaSource
+import dev.opentomac.android.platform.AndroidMessagingSource
 import dev.opentomac.android.platform.AndroidNotificationSource
 import dev.opentomac.android.platform.MediaRemoteAgent
 import dev.opentomac.android.service.MirroringService
@@ -32,6 +33,7 @@ import dev.opentomac.shared.contacts.ContactsAgent
 import dev.opentomac.shared.crypto.Identity
 import dev.opentomac.shared.media.MediaAgent
 import dev.opentomac.shared.media.MediaSource
+import dev.opentomac.shared.messaging.MessagingAgent
 import dev.opentomac.shared.notifications.NotificationAgent
 import dev.opentomac.shared.pairing.PairingManager
 import dev.opentomac.shared.pairing.PairingPayload
@@ -120,6 +122,7 @@ object AppRuntime {
     private var transferEngine: TransferEngine? = null
     private var notificationAgent: NotificationAgent? = null
     private var contactsAgent: ContactsAgent? = null
+    private var messagingAgent: MessagingAgent? = null
     private var mediaAgent: MediaAgent? = null
     private var mediaRemoteAgent: MediaRemoteAgent? = null
     private var mediaSource: MediaSource? = null
@@ -250,6 +253,10 @@ object AppRuntime {
                 source = AndroidContactsSource(appContext),
                 send = { safeSend(ChannelId.BULK, it) },
             ).also { contactsAgent = it }
+            val messaging = MessagingAgent(
+                source = AndroidMessagingSource(appContext, ownerScope),
+                send = { safeSend(ChannelId.BULK, it) },
+            ).also { messagingAgent = it }
             val mediaRemote = MediaRemoteAgent(
                 context = appContext,
                 scope = ownerScope,
@@ -308,6 +315,7 @@ object AppRuntime {
                 transfer.onMessage(envelope.payload)
                 media.onMessage(envelope.payload)
                 contacts.onMessage(envelope.payload)
+                messaging.onMessage(envelope.payload)
             }
             sync.start(ownerScope)
             notifications.start(ownerScope)

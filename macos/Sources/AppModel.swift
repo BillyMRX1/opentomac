@@ -55,6 +55,12 @@ final class AppModel: ObservableObject {
     @Published var photos: [MacPhoto] = []
     @Published var contacts: [MacContact] = []
     @Published var contactsGranted = true
+    @Published var smsThreads: [MacSmsThread] = []
+    @Published var smsMessages: [MacSmsMessage] = []
+    @Published var smsAddress = ""
+    @Published var smsGranted = true
+    @Published var calls: [MacCallEntry] = []
+    @Published var callsGranted = true
     @Published var notificationsAuthorized: Bool?
     @Published var mirrorActive = false
     @Published var mirrorConfigured = false
@@ -74,6 +80,9 @@ final class AppModel: ObservableObject {
     private var controller: MacController!
     private let notifier = NotificationBridge()
     private var mirrorRestartTask: Task<Void, Never>?
+    private var requestedSmsThreadId: String?
+    private var smsGeneration = 0
+    private var callGeneration = 0
     private static let mirrorQualityDefaultsKey = "mirrorQualityPreset"
 
     init() {
@@ -207,6 +216,89 @@ final class AppModel: ObservableObject {
                 self?.contactsGranted = granted.boolValue
             }
         }
+    }
+
+    func beginSmsSession() -> Int {
+        smsGeneration &+= 1
+        requestedSmsThreadId = nil
+        smsThreads = []
+        smsMessages = []
+        smsAddress = ""
+        smsGranted = true
+        return smsGeneration
+    }
+
+    func loadSmsThreads(generation: Int) {
+        guard generation == smsGeneration else { return }
+        controller.loadSmsThreads { [weak self] items, granted in
+            Task { @MainActor in
+                guard let self, self.smsGeneration == generation else { return }
+                self.smsThreads = items
+                self.smsGranted = granted.boolValue
+            }
+        }
+    }
+
+    func loadSmsThread(_ threadId: String, generation: Int) {
+        guard generation == smsGeneration else { return }
+        requestedSmsThreadId = threadId
+        controller.loadSmsThread(threadId: threadId) { [weak self] address, items, granted in
+            Task { @MainActor in
+                guard
+                    let self,
+                    self.smsGeneration == generation,
+                    self.requestedSmsThreadId == threadId
+                else { return }
+                self.smsAddress = address
+                self.smsMessages = items
+                self.smsGranted = granted.boolValue
+            }
+        }
+    }
+
+    func sendSms(
+        address: String,
+        body: String,
+        onResult: @escaping (Bool, String) -> Void
+    ) {
+        controller.sendSms(address: address, body: body) { sent, error in
+            Task { @MainActor in onResult(sent.boolValue, error) }
+        }
+    }
+
+    func clearSms(generation: Int) {
+        guard generation == smsGeneration else { return }
+        smsGeneration &+= 1
+        requestedSmsThreadId = nil
+        smsThreads = []
+        smsMessages = []
+        smsAddress = ""
+        smsGranted = true
+    }
+
+    func beginCallSession() -> Int {
+        callGeneration &+= 1
+        calls = []
+        callsGranted = true
+        return callGeneration
+    }
+
+    func loadCallLog(generation: Int) {
+        guard generation == callGeneration else { return }
+        controller.loadCallLog { [weak self] items, granted in
+            Task { @MainActor in
+                guard let self, self.callGeneration == generation else { return }
+                self.calls = items
+                self.callsGranted = granted.boolValue
+            }
+        }
+    }
+
+    func clearCallLog(generation: Int) {
+        guard generation == callGeneration else { return }
+        callGeneration &+= 1
+        calls = []
+        callsGranted = true
     }
 
     func sendFile() {

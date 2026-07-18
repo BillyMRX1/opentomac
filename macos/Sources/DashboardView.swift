@@ -8,6 +8,8 @@ struct DashboardView: View {
     @State private var showPairing = false
     @State private var showPhotos = false
     @State private var showContacts = false
+    @State private var showMessages = false
+    @State private var showCalls = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -20,6 +22,8 @@ struct DashboardView: View {
                 }
                 Button("Photos") { showPhotos = true }
                 Button("Contacts") { showContacts = true }
+                Button("Messages") { showMessages = true }
+                Button("Calls") { showCalls = true }
                 Button("Pair device") {
                     model.startHosting()
                     showPairing = true
@@ -153,6 +157,14 @@ struct DashboardView: View {
         }
         .sheet(isPresented: $showContacts) {
             ContactsView(isPresented: $showContacts)
+                .environmentObject(model)
+        }
+        .sheet(isPresented: $showMessages) {
+            MessagesView(isPresented: $showMessages)
+                .environmentObject(model)
+        }
+        .sheet(isPresented: $showCalls) {
+            CallsView(isPresented: $showCalls)
                 .environmentObject(model)
         }
     }

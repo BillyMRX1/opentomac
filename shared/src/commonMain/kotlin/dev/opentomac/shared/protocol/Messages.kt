@@ -509,6 +509,93 @@ data class ContactsSearchResponse(
     @ProtoNumber(3) val granted: Boolean = true,
 ) : Message
 
+// --- Messaging ---
+
+@Serializable
+data class SmsThread(
+    @ProtoNumber(1) val threadId: String,
+    @ProtoNumber(2) val address: String,
+    @ProtoNumber(3) val contactName: String,
+    @ProtoNumber(4) val snippet: String,
+    @ProtoNumber(5) val dateMs: Long,
+    @ProtoNumber(6) val unread: Boolean,
+)
+
+@Serializable
+data class SmsMessage(
+    @ProtoNumber(1) val body: String,
+    @ProtoNumber(2) val dateMs: Long,
+    @ProtoNumber(3) val incoming: Boolean,
+)
+
+@Serializable
+@SerialName("sms_threads_request")
+data class SmsThreadsRequest(
+    @ProtoNumber(1) val limit: Int,
+) : Message
+
+@Serializable
+@SerialName("sms_threads_response")
+data class SmsThreadsResponse(
+    @ProtoNumber(1) val threads: List<SmsThread> = emptyList(),
+    @ProtoNumber(2) val granted: Boolean = true,
+) : Message
+
+@Serializable
+@SerialName("sms_thread_request")
+data class SmsThreadRequest(
+    @ProtoNumber(1) val threadId: String,
+    @ProtoNumber(2) val limit: Int,
+) : Message
+
+@Serializable
+@SerialName("sms_thread_response")
+data class SmsThreadResponse(
+    @ProtoNumber(1) val threadId: String,
+    @ProtoNumber(2) val address: String,
+    @ProtoNumber(3) val messages: List<SmsMessage> = emptyList(),
+    @ProtoNumber(4) val granted: Boolean = true,
+) : Message
+
+@Serializable
+@SerialName("sms_send_request")
+data class SmsSendRequest(
+    @ProtoNumber(1) val address: String,
+    @ProtoNumber(2) val body: String,
+    @ProtoNumber(3) val id: String,
+) : Message
+
+@Serializable
+@SerialName("sms_send_result")
+data class SmsSendResult(
+    @ProtoNumber(1) val address: String,
+    @ProtoNumber(2) val sent: Boolean,
+    @ProtoNumber(3) val error: String = "",
+    @ProtoNumber(4) val id: String,
+) : Message
+
+@Serializable
+data class CallLogEntry(
+    @ProtoNumber(1) val number: String,
+    @ProtoNumber(2) val contactName: String,
+    @ProtoNumber(3) val type: String,
+    @ProtoNumber(4) val dateMs: Long,
+    @ProtoNumber(5) val durationSec: Int,
+)
+
+@Serializable
+@SerialName("call_log_request")
+data class CallLogRequest(
+    @ProtoNumber(1) val limit: Int,
+) : Message
+
+@Serializable
+@SerialName("call_log_response")
+data class CallLogResponse(
+    @ProtoNumber(1) val entries: List<CallLogEntry> = emptyList(),
+    @ProtoNumber(2) val granted: Boolean = true,
+) : Message
+
 // --- Notifications ---
 
 @Serializable

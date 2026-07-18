@@ -4,6 +4,7 @@ import dev.opentomac.shared.clipboard.ClipboardSync
 import dev.opentomac.shared.contacts.ContactsCompanion
 import dev.opentomac.shared.crypto.Identity
 import dev.opentomac.shared.media.MediaCompanionBrowser
+import dev.opentomac.shared.messaging.MessagingCompanion
 import dev.opentomac.shared.notifications.NotificationCompanion
 import dev.opentomac.shared.notifications.NotificationPresenter
 import dev.opentomac.shared.pairing.PairingManager
@@ -90,6 +91,32 @@ data class MacContact(
     val emails: List<String>,
 )
 
+/** One phone SMS conversation, flattened for the Swift UI. */
+data class MacSmsThread(
+    val threadId: String,
+    val address: String,
+    val contactName: String,
+    val snippet: String,
+    val dateMs: Long,
+    val unread: Boolean,
+)
+
+/** One message in a phone SMS conversation, flattened for the Swift UI. */
+data class MacSmsMessage(
+    val body: String,
+    val dateMs: Long,
+    val incoming: Boolean,
+)
+
+/** One recent phone call, flattened for the Swift UI. */
+data class MacCallEntry(
+    val number: String,
+    val contactName: String,
+    val type: String,
+    val dateMs: Long,
+    val durationSec: Int,
+)
+
 /**
  * Kotlin orchestrator for the macOS app. It owns the identity, trust store, session,
  * and feature engines, keeping all coroutine, Flow, and suspend interaction in Kotlin
@@ -126,6 +153,7 @@ class MacController(
     private lateinit var notifications: NotificationCompanion
     private lateinit var mediaBrowser: MediaCompanionBrowser
     private lateinit var contactsCompanion: ContactsCompanion
+    private lateinit var messagingCompanion: MessagingCompanion
     private val transportFactory = ConfigurableTransportFactory()
 
     private var pendingPairing: PendingPairing? = null
@@ -184,6 +212,7 @@ class MacController(
             )
             mediaBrowser = MediaCompanionBrowser(send = { safeSend(ChannelId.BULK, it) })
             contactsCompanion = ContactsCompanion(send = { safeSend(ChannelId.BULK, it) })
+            messagingCompanion = MessagingCompanion(send = { safeSend(ChannelId.BULK, it) })
             scope.launch {
                 for (message in remoteInputs) safeSend(ChannelId.EVENT, message)
             }
@@ -218,6 +247,7 @@ class MacController(
                 transferEngine.onMessage(envelope.payload)
                 mediaBrowser.onMessage(envelope.payload)
                 contactsCompanion.onMessage(envelope.payload)
+                messagingCompanion.onMessage(envelope.payload)
             }
             sessionManager.registerHandler(ChannelId.VIDEO) { envelope ->
                 when (val message = envelope.payload) {
@@ -500,6 +530,87 @@ class MacController(
                 }
                 .onFailure { cause ->
                     println("opentomac contacts search failed: ${cause.message}")
+                    onResult(emptyList(), true)
+                }
+        }
+    }
+
+    /** Loads recent SMS conversations; [onResult]'s Boolean reports phone permission. */
+    fun loadSmsThreads(onResult: (List<MacSmsThread>, Boolean) -> Unit) {
+        scope.launch {
+            runCatching { messagingCompanion.threads() }
+                .onSuccess { response ->
+                    onResult(
+                        response.threads.map {
+                            MacSmsThread(
+                                threadId = it.threadId,
+                                address = it.address,
+                                contactName = it.contactName,
+                                snippet = it.snippet,
+                                dateMs = it.dateMs,
+                                unread = it.unread,
+                            )
+                        },
+                        response.granted,
+                    )
+                }
+                .onFailure { cause ->
+                    println("opentomac SMS thread load failed: ${cause.message}")
+                    onResult(emptyList(), true)
+                }
+        }
+    }
+
+    /** Loads one SMS conversation; [onResult]'s Boolean reports phone permission. */
+    fun loadSmsThread(
+        threadId: String,
+        onResult: (String, List<MacSmsMessage>, Boolean) -> Unit,
+    ) {
+        scope.launch {
+            runCatching { messagingCompanion.thread(threadId) }
+                .onSuccess { response ->
+                    onResult(
+                        response.address,
+                        response.messages.map { MacSmsMessage(it.body, it.dateMs, it.incoming) },
+                        response.granted,
+                    )
+                }
+                .onFailure { cause ->
+                    println("opentomac SMS message load failed: ${cause.message}")
+                    onResult("", emptyList(), true)
+                }
+        }
+    }
+
+    /** Sends an SMS through the connected Android phone. */
+    fun sendSms(address: String, body: String, onResult: (Boolean, String) -> Unit) {
+        scope.launch {
+            runCatching { messagingCompanion.sendSms(address, body) }
+                .onSuccess { response -> onResult(response.sent, response.error) }
+                .onFailure { cause -> onResult(false, cause.message ?: "Could not send message") }
+        }
+    }
+
+    /** Loads recent calls; [onResult]'s Boolean reports phone permission. */
+    fun loadCallLog(onResult: (List<MacCallEntry>, Boolean) -> Unit) {
+        scope.launch {
+            runCatching { messagingCompanion.callLog() }
+                .onSuccess { response ->
+                    onResult(
+                        response.entries.map {
+                            MacCallEntry(
+                                number = it.number,
+                                contactName = it.contactName,
+                                type = it.type,
+                                dateMs = it.dateMs,
+                                durationSec = it.durationSec,
+                            )
+                        },
+                        response.granted,
+                    )
+                }
+                .onFailure { cause ->
+                    println("opentomac call log load failed: ${cause.message}")
                     onResult(emptyList(), true)
                 }
         }
