@@ -26,6 +26,7 @@ import dev.opentomac.android.platform.AndroidMediaSource
 import dev.opentomac.android.platform.AndroidNotificationSource
 import dev.opentomac.android.platform.MediaRemoteAgent
 import dev.opentomac.android.service.MirroringService
+import dev.opentomac.android.service.OpentomacControlService
 import dev.opentomac.shared.clipboard.ClipboardSync
 import dev.opentomac.shared.contacts.ContactsAgent
 import dev.opentomac.shared.crypto.Identity
@@ -42,6 +43,10 @@ import dev.opentomac.shared.protocol.ChannelId
 import dev.opentomac.shared.protocol.ClipboardItemMsg
 import dev.opentomac.shared.protocol.DuplicatePolicy
 import dev.opentomac.shared.protocol.FileMeta
+import dev.opentomac.shared.protocol.InputKey
+import dev.opentomac.shared.protocol.InputSwipe
+import dev.opentomac.shared.protocol.InputTap
+import dev.opentomac.shared.protocol.InputText
 import dev.opentomac.shared.protocol.MediaControl
 import dev.opentomac.shared.protocol.MediaListRequest
 import dev.opentomac.shared.protocol.Message
@@ -83,6 +88,8 @@ import okio.Path.Companion.toPath
 import java.io.File
 import java.net.NetworkInterface
 import java.util.Collections
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 object AppRuntime {
     private const val DEFAULT_PORT = 42_420
@@ -122,6 +129,8 @@ object AppRuntime {
     private var hostServer: TcpServer? = null
     private val queuedOffers = mutableListOf<List<SourceFile>>()
     private val screenshotScanMutex = Mutex()
+    private val controlAccessNoticeShown = AtomicBoolean(false)
+    private val mirrorInputState = AtomicReference(MirrorInputState())
     private var screenshotObserver: ContentObserver? = null
     private var screenshotDebounceJob: Job? = null
     private var lastSeenImageId = 0L
@@ -283,6 +292,11 @@ object AppRuntime {
                             .cancel(MIRROR_REQUEST_NOTIFICATION_ID)
                         stopMirroring(message.reason, notifyPeer = false)
                     }
+                    is InputTap,
+                    is InputSwipe,
+                    is InputKey,
+                    is InputText,
+                    -> handleRemoteInput(message)
                     else -> notifications.onMessage(message)
                 }
             }
@@ -310,6 +324,7 @@ object AppRuntime {
                         state
                     }
                     if (state is ConnectionState.Connected) {
+                        controlAccessNoticeShown.set(false)
                         // A restarted peer's sequence counter starts over; drop the old
                         // replay watermark or its items are silently discarded.
                         sync.onSessionEstablished()
@@ -421,7 +436,19 @@ object AppRuntime {
     }
 
     internal fun setMirroringActive(active: Boolean) {
-        mutableMirroring.value = active
+        val inputState = mirrorInputState.updateAndGet { previous ->
+            MirrorInputState(
+                active = active,
+                generation = previous.generation + 1,
+            )
+        }
+        OpentomacControlService.updateMirroringState(
+            generation = inputState.generation,
+            active = inputState.active,
+        )
+        if (mirrorInputState.get() == inputState) {
+            mutableMirroring.value = active
+        }
     }
 
     internal suspend fun sendMirrorMessage(channel: ChannelId, message: Message) {
@@ -649,7 +676,7 @@ object AppRuntime {
 
     private fun stopMirroring(reason: String, notifyPeer: Boolean) {
         mutableMirrorConsentRequested.value = false
-        mutableMirroring.value = false
+        setMirroringActive(false)
         val stopper = mirroringServiceStopper
         if (stopper != null) {
             stopper(reason, notifyPeer)
@@ -815,6 +842,18 @@ object AppRuntime {
         postOpenUrlNotification(context, uri, intent)
     }
 
+    private fun handleRemoteInput(message: Message) {
+        // MediaProjection is the user-visible authorization boundary: never permit
+        // an authenticated peer to inject input after the mirror has stopped.
+        val inputState = mirrorInputState.get()
+        if (!inputState.active || !mutableMirroring.value) return
+        if (OpentomacControlService.dispatch(message, inputState.generation)) return
+        if (controlAccessNoticeShown.compareAndSet(false, true)) {
+            Log.w("opentomac", "remote input ignored: Mac control accessibility service is disabled")
+            mutableNotice.value = "Enable control access to let the Mac control the phone"
+        }
+    }
+
     private fun postOpenUrlNotification(context: Context, uri: Uri, intent: Intent) {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
@@ -903,6 +942,11 @@ object AppRuntime {
             require(bitrateBps > 0) { "Mirror bitrate must be positive" }
         }
     }
+
+    private data class MirrorInputState(
+        val active: Boolean = false,
+        val generation: Long = 0,
+    )
 
     private fun webUriOrNull(value: String): Uri? {
         val trimmed = value.trim()

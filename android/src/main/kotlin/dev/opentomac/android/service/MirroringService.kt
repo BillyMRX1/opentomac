@@ -114,10 +114,12 @@ class MirroringService : Service() {
 
     private fun finish(reason: String, notifyPeer: Boolean) {
         if (!ending.compareAndSet(false, true)) return
+        // Invalidate queued accessibility input before encoder/projection teardown,
+        // which can take long enough for stale handler work to otherwise execute.
+        AppRuntime.setMirroringActive(false)
         serviceScope.launch {
             controller?.close()
             controller = null
-            AppRuntime.setMirroringActive(false)
             if (notifyPeer) AppRuntime.sendMirrorMessage(
                 ChannelId.EVENT,
                 MirrorStop(reason),

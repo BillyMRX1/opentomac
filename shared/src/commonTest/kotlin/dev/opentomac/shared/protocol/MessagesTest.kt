@@ -267,6 +267,41 @@ class MessagesTest {
     }
 
     @Test
+    fun inputTapRoundTrip() {
+        val msg = InputTap(x = 0.25f, y = 0.75f)
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+    }
+
+    @Test
+    fun inputSwipeRoundTrip() {
+        val msg = InputSwipe(
+            x1 = 0.2f,
+            y1 = 0.8f,
+            x2 = 0.7f,
+            y2 = 0.1f,
+            durationMs = 425,
+        )
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+    }
+
+    @Test
+    fun inputKeyRoundTrip() {
+        val msg = InputKey(action = "recents")
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+    }
+
+    @Test
+    fun inputTextRoundTrip() {
+        val msg = InputText(text = "hello \uD83D\uDC4B", deleteCount = 2)
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+
+        val defaults = assertIs<InputText>(
+            roundTrip(InputText(text = "world"), channel = ChannelId.EVENT),
+        )
+        assertEquals(0, defaults.deleteCount)
+    }
+
+    @Test
     fun mediaNowPlayingRoundTrip() {
         val msg = MediaNowPlaying(
             appName = "Music",

@@ -244,6 +244,34 @@ final class AppModel: ObservableObject {
         mirrorConfigured = false
     }
 
+    func sendMirrorTap(x: CGFloat, y: CGFloat) {
+        controller.sendInputTap(x: Float(x), y: Float(y))
+    }
+
+    func sendMirrorSwipe(
+        x1: CGFloat,
+        y1: CGFloat,
+        x2: CGFloat,
+        y2: CGFloat,
+        durationMs: Int
+    ) {
+        controller.sendInputSwipe(
+            x1: Float(x1),
+            y1: Float(y1),
+            x2: Float(x2),
+            y2: Float(y2),
+            durationMs: Int32(clamping: durationMs)
+        )
+    }
+
+    func sendMirrorKey(_ action: String) {
+        controller.sendInputKey(action: action)
+    }
+
+    func sendMirrorText(_ text: String, deleteCount: Int = 0) {
+        controller.sendInputText(text: text, deleteCount: Int32(clamping: deleteCount))
+    }
+
     func setMirrorQuality(_ quality: MirrorQualityPreset) {
         guard quality != mirrorQuality else { return }
         mirrorQuality = quality

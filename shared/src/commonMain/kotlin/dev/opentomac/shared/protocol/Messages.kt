@@ -435,6 +435,38 @@ data class VideoFrame(
     }
 }
 
+// --- Remote input ---
+
+@Serializable
+@SerialName("input_tap")
+data class InputTap(
+    @ProtoNumber(1) val x: Float,
+    @ProtoNumber(2) val y: Float,
+) : Message
+
+@Serializable
+@SerialName("input_swipe")
+data class InputSwipe(
+    @ProtoNumber(1) val x1: Float,
+    @ProtoNumber(2) val y1: Float,
+    @ProtoNumber(3) val x2: Float,
+    @ProtoNumber(4) val y2: Float,
+    @ProtoNumber(5) val durationMs: Int,
+) : Message
+
+@Serializable
+@SerialName("input_key")
+data class InputKey(
+    @ProtoNumber(1) val action: String,
+) : Message
+
+@Serializable
+@SerialName("input_text")
+data class InputText(
+    @ProtoNumber(1) val text: String,
+    @ProtoNumber(2) val deleteCount: Int = 0,
+) : Message
+
 // --- Media remote ---
 
 @Serializable

@@ -16,6 +16,10 @@ import dev.opentomac.shared.protocol.ChannelId
 import dev.opentomac.shared.protocol.ClipboardItemMsg
 import dev.opentomac.shared.protocol.DuplicatePolicy
 import dev.opentomac.shared.protocol.FileMeta
+import dev.opentomac.shared.protocol.InputKey
+import dev.opentomac.shared.protocol.InputSwipe
+import dev.opentomac.shared.protocol.InputTap
+import dev.opentomac.shared.protocol.InputText
 import dev.opentomac.shared.protocol.MediaControl
 import dev.opentomac.shared.protocol.MediaFetchRequest
 import dev.opentomac.shared.protocol.MediaNowPlaying
@@ -45,6 +49,7 @@ import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlin.concurrent.Volatile
 import kotlin.io.encoding.Base64
@@ -108,6 +113,7 @@ class MacController(
 ) {
     private val collectedJobs = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val remoteInputs = Channel<Message>(Channel.UNLIMITED)
     private val port = 42_420
 
     private lateinit var identity: Identity
@@ -178,6 +184,9 @@ class MacController(
             )
             mediaBrowser = MediaCompanionBrowser(send = { safeSend(ChannelId.BULK, it) })
             contactsCompanion = ContactsCompanion(send = { safeSend(ChannelId.BULK, it) })
+            scope.launch {
+                for (message in remoteInputs) safeSend(ChannelId.EVENT, message)
+            }
 
             sessionManager.registerHandler(ChannelId.EVENT) { envelope ->
                 when (val message = envelope.payload) {
@@ -433,7 +442,29 @@ class MacController(
     /** Stops the current mirror session on the connected Android device. */
     fun stopMirror() {
         println("opentomac mirror: stopping at Mac request")
+        mirrorLive = false
         scope.launch { safeSend(ChannelId.EVENT, MirrorStop("mac stopped")) }
+    }
+
+    fun sendInputTap(x: Float, y: Float) {
+        sendInputMessage(InputTap(x, y))
+    }
+
+    fun sendInputSwipe(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Int) {
+        sendInputMessage(InputSwipe(x1, y1, x2, y2, durationMs))
+    }
+
+    fun sendInputKey(action: String) {
+        sendInputMessage(InputKey(action))
+    }
+
+    fun sendInputText(text: String, deleteCount: Int = 0) {
+        sendInputMessage(InputText(text, deleteCount))
+    }
+
+    private fun sendInputMessage(message: Message) {
+        if (!mirrorLive) return
+        remoteInputs.trySend(message)
     }
 
     /** Sends an inline reply back to a mirrored phone notification. */

@@ -2,6 +2,8 @@
     <string name="app_name">opentomac</string>
     <string name="send_to_opentomac">Send with opentomac</string>
     <string name="notification_access_label">opentomac notification sharing</string>
+    <string name="control_access_label">opentomac Mac control</string>
+    <string name="control_access_description">Lets your paired Mac tap, scroll, and type on this phone during screen mirroring.</string>
     <string name="tile_send_clipboard">Send clipboard</string>
     <string name="connection_channel_name">Device connection</string>
     <string name="connection_channel_description">Keeps the encrypted local device connection active</string>

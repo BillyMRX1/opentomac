@@ -3,6 +3,7 @@ package dev.opentomac.android.ui
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
@@ -33,6 +34,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,10 +45,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import dev.opentomac.android.runtime.AppRuntime
 import dev.opentomac.android.service.ConnectionService
+import dev.opentomac.android.service.OpentomacControlService
 import dev.opentomac.shared.pairing.TrustedDevice
 import dev.opentomac.shared.session.ConnectionState
 import dev.opentomac.shared.transfer.TransferDirection
@@ -121,7 +127,14 @@ private fun OpentomacApp() {
         }
         val requestMirrorConsent = {
             AppRuntime.consumeMirrorConsentRequest()
-            mirrorConsent.launch(projectionManager.createScreenCaptureIntent())
+            val consentIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                projectionManager.createScreenCaptureIntent(
+                    MediaProjectionConfig.createConfigForDefaultDisplay(),
+                )
+            } else {
+                projectionManager.createScreenCaptureIntent()
+            }
+            mirrorConsent.launch(consentIntent)
         }
         LaunchedEffect(mirrorConsentRequested) {
             if (mirrorConsentRequested) requestMirrorConsent()
@@ -224,6 +237,7 @@ private fun DashboardScreen(
 
     Spacer(Modifier.height(8.dp))
     NotificationAccessRow()
+    ControlAccessRow()
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -280,6 +294,30 @@ private fun NotificationAccessRow() {
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
             )
         }) { Text("Enable notification mirroring") }
+    }
+}
+
+@Composable
+private fun ControlAccessRow() {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var enabled by remember { mutableStateOf(OpentomacControlService.isEnabled(context)) }
+    DisposableEffect(context, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                enabled = OpentomacControlService.isEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    if (!enabled) {
+        OutlinedButton(onClick = {
+            context.startActivity(
+                Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }) { Text("Enable Mac control") }
     }
 }
 

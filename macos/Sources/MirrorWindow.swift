@@ -255,10 +255,20 @@ final class VideoRenderer: ObservableObject {
 
 struct MirrorWindow: View {
     @EnvironmentObject private var model: AppModel
+    @State private var showsControlHint = !UserDefaults.standard.bool(
+        forKey: "mirrorControlHintDismissed"
+    )
 
     var body: some View {
         ZStack {
-            MirrorVideoSurface(renderer: model.videoRenderer)
+            MirrorVideoSurface(
+                renderer: model.videoRenderer,
+                videoSize: model.mirrorVideoSize,
+                onTap: model.sendMirrorTap,
+                onSwipe: model.sendMirrorSwipe,
+                onText: model.sendMirrorText,
+                onInteraction: dismissControlHint
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             if let reason = model.mirrorStoppedReason {
                 VStack(spacing: 10) {
@@ -277,6 +287,22 @@ struct MirrorWindow: View {
                     .padding(.vertical, 8)
                     .background(.black.opacity(0.55), in: Capsule())
             }
+            if showsControlHint && model.mirrorConfigured {
+                VStack {
+                    Spacer()
+                    Text(
+                        "Click, scroll, and type to control the phone — "
+                            + "enable Mac control on the phone first"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 7)
+                    .background(.black.opacity(0.58), in: Capsule())
+                    .padding(12)
+                }
+                .allowsHitTesting(false)
+            }
         }
         .background(.black)
         .frame(minWidth: 220, minHeight: 180)
@@ -286,6 +312,34 @@ struct MirrorWindow: View {
             }
         )
         .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                Button {
+                    model.sendMirrorKey("back")
+                    dismissControlHint()
+                } label: {
+                    Label("Back", systemImage: "chevron.backward")
+                }
+                .help("Back")
+                .disabled(!model.mirrorConfigured)
+
+                Button {
+                    model.sendMirrorKey("home")
+                    dismissControlHint()
+                } label: {
+                    Label("Home", systemImage: "house")
+                }
+                .help("Home")
+                .disabled(!model.mirrorConfigured)
+
+                Button {
+                    model.sendMirrorKey("recents")
+                    dismissControlHint()
+                } label: {
+                    Label("Recents", systemImage: "square.on.square")
+                }
+                .help("Recents")
+                .disabled(!model.mirrorConfigured)
+            }
             ToolbarItem(placement: .primaryAction) {
                 Picker(
                     "Quality",
@@ -302,6 +356,12 @@ struct MirrorWindow: View {
                 .help("Mirroring quality")
             }
         }
+    }
+
+    private func dismissControlHint() {
+        guard showsControlHint else { return }
+        showsControlHint = false
+        UserDefaults.standard.set(true, forKey: "mirrorControlHintDismissed")
     }
 }
 
@@ -430,12 +490,29 @@ private final class WindowProbeView: NSView {
 
 private struct MirrorVideoSurface: NSViewRepresentable {
     let renderer: VideoRenderer
+    let videoSize: CGSize?
+    let onTap: (CGFloat, CGFloat) -> Void
+    let onSwipe: (CGFloat, CGFloat, CGFloat, CGFloat, Int) -> Void
+    let onText: (String, Int) -> Void
+    let onInteraction: () -> Void
 
     func makeNSView(context: Context) -> MirrorDisplayView {
-        MirrorDisplayView(renderer: renderer)
+        MirrorDisplayView(
+            renderer: renderer,
+            onTap: onTap,
+            onSwipe: onSwipe,
+            onText: onText,
+            onInteraction: onInteraction
+        )
     }
 
-    func updateNSView(_ nsView: MirrorDisplayView, context: Context) {}
+    func updateNSView(_ nsView: MirrorDisplayView, context: Context) {
+        nsView.videoSize = videoSize
+        nsView.onTap = onTap
+        nsView.onSwipe = onSwipe
+        nsView.onText = onText
+        nsView.onInteraction = onInteraction
+    }
 
     static func dismantleNSView(_ nsView: MirrorDisplayView, coordinator: ()) {
         nsView.detachRenderer()
@@ -445,15 +522,44 @@ private struct MirrorVideoSurface: NSViewRepresentable {
 private final class MirrorDisplayView: NSView {
     private let renderer: VideoRenderer
     private let displayLayer = AVSampleBufferDisplayLayer()
+    var videoSize: CGSize?
+    var onTap: (CGFloat, CGFloat) -> Void
+    var onSwipe: (CGFloat, CGFloat, CGFloat, CGFloat, Int) -> Void
+    var onText: (String, Int) -> Void
+    var onInteraction: () -> Void
 
-    init(renderer: VideoRenderer) {
+    private var mouseDownState: (location: CGPoint, normalized: CGPoint, time: TimeInterval)?
+    private var keyWindowObserver: NSObjectProtocol?
+    private var scrollDeltaY: CGFloat = 0
+    private var scrollAnchor: CGPoint?
+    private var scrollWorkItem: DispatchWorkItem?
+    private var textBuffer = ""
+    private var textWorkItem: DispatchWorkItem?
+
+    init(
+        renderer: VideoRenderer,
+        onTap: @escaping (CGFloat, CGFloat) -> Void,
+        onSwipe: @escaping (CGFloat, CGFloat, CGFloat, CGFloat, Int) -> Void,
+        onText: @escaping (String, Int) -> Void,
+        onInteraction: @escaping () -> Void
+    ) {
         self.renderer = renderer
+        self.onTap = onTap
+        self.onSwipe = onSwipe
+        self.onText = onText
+        self.onInteraction = onInteraction
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         displayLayer.videoGravity = .resizeAspect
         layer?.addSublayer(displayLayer)
         renderer.attach(displayLayer)
+    }
+
+    deinit {
+        if let keyWindowObserver {
+            NotificationCenter.default.removeObserver(keyWindowObserver)
+        }
     }
 
     @available(*, unavailable)
@@ -469,7 +575,195 @@ private final class MirrorDisplayView: NSView {
         CATransaction.commit()
     }
 
+    override var acceptsFirstResponder: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let keyWindowObserver {
+            NotificationCenter.default.removeObserver(keyWindowObserver)
+        }
+        guard let window else {
+            keyWindowObserver = nil
+            return
+        }
+        keyWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self, let window else { return }
+            window.makeFirstResponder(self)
+        }
+        if window.isKeyWindow {
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self, let window, self.window === window else { return }
+                window.makeFirstResponder(self)
+            }
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        let location = convert(event.locationInWindow, from: nil)
+        guard let normalized = normalizedPoint(location) else {
+            mouseDownState = nil
+            return
+        }
+        mouseDownState = (location, normalized, event.timestamp)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let start = mouseDownState else { return }
+        mouseDownState = nil
+        let location = convert(event.locationInWindow, from: nil)
+        guard let end = normalizedPoint(location) else { return }
+
+        let elapsed = max(0, event.timestamp - start.time)
+        let movement = hypot(location.x - start.location.x, location.y - start.location.y)
+        onInteraction()
+        if elapsed < 0.15 && movement <= 5 {
+            onTap(end.x, end.y)
+        } else {
+            onSwipe(
+                start.normalized.x,
+                start.normalized.y,
+                end.x,
+                end.y,
+                max(1, Int((elapsed * 1_000).rounded()))
+            )
+        }
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        guard let normalized = normalizedPoint(location), event.scrollingDeltaY != 0 else { return }
+        if scrollAnchor == nil { scrollAnchor = normalized }
+        let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 20
+        scrollDeltaY += event.scrollingDeltaY * scale
+        guard scrollWorkItem == nil else { return }
+
+        let item = DispatchWorkItem { [weak self] in self?.flushScroll() }
+        scrollWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: item)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 {
+            flushTextBuffer()
+            super.keyDown(with: event)
+            return
+        }
+        if event.modifierFlags.intersection([.command, .control]).isEmpty == false {
+            flushTextBuffer()
+            super.keyDown(with: event)
+            return
+        }
+        if event.keyCode == 51 || event.keyCode == 117 {
+            flushTextBuffer()
+            onText("", 1)
+            onInteraction()
+            return
+        }
+        if event.keyCode == 36 || event.keyCode == 76 {
+            flushTextBuffer()
+            onText("\n", 0)
+            onInteraction()
+            return
+        }
+        if event.modifierFlags.contains(.function) {
+            flushTextBuffer()
+            super.keyDown(with: event)
+            return
+        }
+        guard
+            let characters = event.characters,
+            !characters.isEmpty,
+            characters.unicodeScalars.allSatisfy({
+                !CharacterSet.controlCharacters.contains($0)
+            })
+        else {
+            super.keyDown(with: event)
+            return
+        }
+        textBuffer.append(characters)
+        textWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.flushTextBuffer() }
+        textWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: item)
+    }
+
+    private func flushScroll() {
+        scrollWorkItem = nil
+        guard let anchor = scrollAnchor else { return }
+        scrollAnchor = nil
+        let delta = scrollDeltaY
+        scrollDeltaY = 0
+        let rect = videoRect
+        guard rect.height > 0 else { return }
+        let normalizedDelta = min(max(delta * 3 / rect.height, -0.45), 0.45)
+        guard abs(normalizedDelta) >= 0.002 else { return }
+        let startY = min(max(anchor.y - normalizedDelta / 2, 0), 1)
+        let endY = min(max(anchor.y + normalizedDelta / 2, 0), 1)
+        guard startY != endY else { return }
+        onSwipe(anchor.x, startY, anchor.x, endY, 100)
+        onInteraction()
+    }
+
+    private func flushTextBuffer() {
+        textWorkItem?.cancel()
+        textWorkItem = nil
+        guard !textBuffer.isEmpty else { return }
+        let text = textBuffer
+        textBuffer = ""
+        onText(text, 0)
+        onInteraction()
+    }
+
+    private var videoRect: CGRect {
+        guard
+            let videoSize,
+            videoSize.width > 0,
+            videoSize.height > 0,
+            bounds.width > 0,
+            bounds.height > 0
+        else { return .zero }
+
+        let videoAspect = videoSize.width / videoSize.height
+        let viewAspect = bounds.width / bounds.height
+        if viewAspect > videoAspect {
+            let width = bounds.height * videoAspect
+            return CGRect(
+                x: bounds.midX - width / 2,
+                y: bounds.minY,
+                width: width,
+                height: bounds.height
+            )
+        }
+        let height = bounds.width / videoAspect
+        return CGRect(
+            x: bounds.minX,
+            y: bounds.midY - height / 2,
+            width: bounds.width,
+            height: height
+        )
+    }
+
+    private func normalizedPoint(_ point: CGPoint) -> CGPoint? {
+        let rect = videoRect
+        guard rect.width > 0, rect.height > 0, rect.contains(point) else { return nil }
+        let x = min(max((point.x - rect.minX) / rect.width, 0), 1)
+        let bottomOriginY = min(max((point.y - rect.minY) / rect.height, 0), 1)
+        return CGPoint(x: x, y: 1 - bottomOriginY)
+    }
+
     func detachRenderer() {
+        flushTextBuffer()
+        scrollWorkItem?.cancel()
+        scrollWorkItem = nil
+        if let keyWindowObserver {
+            NotificationCenter.default.removeObserver(keyWindowObserver)
+            self.keyWindowObserver = nil
+        }
         renderer.detach(displayLayer)
     }
 }
