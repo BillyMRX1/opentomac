@@ -75,16 +75,17 @@ The first marquee feature and a large one.
 
 ## Phase D: virtual webcam and microphone (CAM-001..005, F12/F13)
 
-Use the phone as a Mac camera and mic.
-- Android: `CameraX` and `AudioRecord` capture and stream.
-- macOS: a Core Media I/O camera extension and a virtual audio input device, both of which are separate signed system extensions with their own distribution and approval path.
-- Effort: about 3 to 5 weeks. Risk: the macOS system-extension distribution and notarization path is the hard part; prove a signed, installable extension early before building the rest.
+DONE 2026-07-18 for the pipeline; the virtual camera is gated on Apple Developer signing (see docs/PHASE_D_CAMERA.md).
+- Android CameraX -> H.264 and AudioRecord -> AAC capture in a camera/microphone foreground service; camera_request/camera_stop/camera_config/camera_frame/audio_frame on the VIDEO channel. Camera and screen mirroring share one atomic capture-ownership state machine; every stop path releases camera+mic locally before a bounded peer notify.
+- macOS in-app Webcam preview window decodes and shows the stream end to end (works now, no signing needed) — this is the verifiable proof of the pipeline.
+- macOS CMIO system-extension target + OSSystemExtensionManager install flow are scaffolded and compile unsigned but are excluded from the default scheme; the virtual camera only appears in Zoom/Meet after the app is signed + notarized with a real DEVELOPMENT_TEAM and the extension is approved in System Settings. Steps in docs/PHASE_D_CAMERA.md. This is the one hard gate only the user can cross.
 
-## Phase E: messaging and calls (MSG-001..005, F05/F08), policy-gated
+## Phase E: messaging and calls (MSG-001..005, F05/F08)
 
-- SMS/MMS thread visibility and bounded quick-reply, incoming-call surface with answer/decline where the OS permits.
-- Requires Google Play policy review for the restricted SMS and call-log permissions before any schedule commitment, and a capability matrix so actions appear only when the specific device supports them.
-- Effort: about 2 to 3 weeks of build plus review risk. Do the policy review first; if it fails, this phase does not ship and the app degrades gracefully without it.
+DONE 2026-07-18. Sideloaded personal build, so the Play restricted-permission review does not apply.
+- SMS conversation list, thread view, and reply, plus recent-calls list, all read-only and on-demand on BULK (contacts pattern). READ_SMS/SEND_SMS/READ_CALL_LOG.
+- Sending is guarded: an SmsSendRequest never sends directly; the phone shows a Send SMS from Mac? confirmation with recipient + body and only sends on tap (multipart-aware, per-part result aggregation, op-id idempotency, timeout surfaced as unknown not resent). Mac sheets clear PII on close with a generation guard.
+- Not done (deferred): incoming-call answer/decline, MMS.
 
 ## Phase F: second surfaces (F14/F15)
 
