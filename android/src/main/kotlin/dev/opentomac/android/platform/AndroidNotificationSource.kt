@@ -56,8 +56,14 @@ class AndroidNotificationSource : NotificationSource {
         }
 
         fun posted(listener: NotificationListenerService, sbn: StatusBarNotification) {
-            Log.w(LOG_TAG, "notification posted: ${sbn.packageName} key=${sbn.key}")
             val notification = sbn.notification
+            // Ongoing notifications (charging state, media playback, foreground
+            // services) re-post constantly and are ambient status, not events worth a
+            // banner; group summaries duplicate the child notification they summarize.
+            if (sbn.isOngoing || notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) {
+                return
+            }
+            Log.w(LOG_TAG, "notification posted: ${sbn.packageName} key=${sbn.key}")
             val packageManager = listener.packageManager
             val appName = runCatching {
                 val info = packageManager.getApplicationInfo(sbn.packageName, 0)
