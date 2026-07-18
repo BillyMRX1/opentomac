@@ -20,6 +20,21 @@ struct DashboardView: View {
             }
             Text(model.connectionStatus).foregroundStyle(.secondary)
 
+            HStack(spacing: 8) {
+                Image(systemName: model.notificationsAuthorized == false ? "bell.slash" : "bell")
+                    .foregroundStyle(model.notificationsAuthorized == false ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                Text(model.notificationsAuthorized == false
+                    ? "Notifications are off for opentomac, so phone notifications cannot appear. Allow them in System Settings."
+                    : "Phone notifications appear as Mac banners. Not seeing them? Check the alert style in System Settings and turn off Focus/Do Not Disturb.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Notification Settings") { model.openNotificationSettings() }
+                    .controlSize(.small)
+            }
+            .padding(8)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+
             if let note = model.lastNotification {
                 Text(note).font(.callout).padding(8)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
@@ -73,6 +88,9 @@ struct DashboardView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.refreshNotificationPermission()
+        }
         .sheet(isPresented: $showPairing) {
             PairingSheet(isPresented: $showPairing)
                 .environmentObject(model)

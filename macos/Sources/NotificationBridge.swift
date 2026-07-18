@@ -13,7 +13,9 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
     func start(onReply: @escaping (String, Int, String) -> Void) {
         self.onReply = onReply
         center.delegate = self
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            NSLog("opentomac notifications: authorization granted=\(granted) error=\(error?.localizedDescription ?? "none")")
+        }
         let replyAction = UNTextInputNotificationAction(
             identifier: "opentomac.reply.action",
             title: "Reply",
@@ -39,7 +41,20 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
             content.categoryIdentifier = Self.replyCategory
         }
         let request = UNNotificationRequest(identifier: key, content: content, trigger: nil)
-        center.add(request)
+        center.add(request) { error in
+            if let error {
+                NSLog("opentomac notifications: banner failed for \(key): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /** Reports whether macOS currently allows this app to post notifications. */
+    nonisolated func authorized(_ completion: @escaping (Bool) -> Void) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let ok = settings.authorizationStatus == .authorized
+                || settings.authorizationStatus == .provisional
+            completion(ok)
+        }
     }
 
     // Show banners even while opentomac is the active app.

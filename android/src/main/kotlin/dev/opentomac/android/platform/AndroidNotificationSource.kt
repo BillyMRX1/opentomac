@@ -5,6 +5,7 @@ import android.app.RemoteInput
 import android.content.Intent
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
+import android.util.Log
 import android.service.notification.StatusBarNotification
 import dev.opentomac.shared.notifications.NotificationEvent
 import dev.opentomac.shared.notifications.NotificationSource
@@ -36,20 +37,26 @@ class AndroidNotificationSource : NotificationSource {
     }
 
     companion object Bridge {
+        private const val LOG_TAG = "opentomac"
         private val events = MutableSharedFlow<NotificationEvent>(extraBufferCapacity = 64)
 
         @Volatile
         private var activeListener: NotificationListenerService? = null
 
         fun attach(listener: NotificationListenerService) {
+            Log.w(LOG_TAG, "notification listener connected")
             activeListener = listener
         }
 
         fun detach(listener: NotificationListenerService) {
-            if (activeListener === listener) activeListener = null
+            if (activeListener === listener) {
+                Log.w(LOG_TAG, "notification listener disconnected")
+                activeListener = null
+            }
         }
 
         fun posted(listener: NotificationListenerService, sbn: StatusBarNotification) {
+            Log.w(LOG_TAG, "notification posted: ${sbn.packageName} key=${sbn.key}")
             val notification = sbn.notification
             val packageManager = listener.packageManager
             val appName = runCatching {

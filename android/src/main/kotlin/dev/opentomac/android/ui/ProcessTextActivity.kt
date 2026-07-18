@@ -4,9 +4,14 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import dev.opentomac.android.runtime.AppRuntime
+import dev.opentomac.android.service.ConnectionService
+import dev.opentomac.shared.session.ConnectionState
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Text-selection action (CLIP-005): sends the selected text to the paired device. */
 class ProcessTextActivity : ComponentActivity() {
@@ -18,12 +23,19 @@ class ProcessTextActivity : ComponentActivity() {
             finish()
             return
         }
+        // This activity can be the process's first entry point: boot the runtime
+        // (which also auto-connects) and bound-wait for the session instead of
+        // hanging forever on a runtime nothing else would initialize.
+        ContextCompat.startForegroundService(this, Intent(this, ConnectionService::class.java))
         lifecycleScope.launch {
-            AppRuntime.awaitReady()
-            val sent = AppRuntime.sendText(selected)
+            val connected = withTimeoutOrNull(5_000) {
+                AppRuntime.awaitReady()
+                AppRuntime.connectionState.first { it is ConnectionState.Connected }
+            } != null
+            val sent = connected && AppRuntime.sendText(selected)
             Toast.makeText(
                 this@ProcessTextActivity,
-                if (sent) "Sent to paired device" else "Could not send text",
+                if (sent) "Sent to paired device" else "Could not send. Open opentomac to connect.",
                 Toast.LENGTH_SHORT,
             ).show()
             finish()

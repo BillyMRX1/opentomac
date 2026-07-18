@@ -12,6 +12,7 @@ final class AppModel: ObservableObject {
     @Published var lastNotification: String?
     @Published var transfers: [MacTransfer] = []
     @Published var photos: [MacPhoto] = []
+    @Published var notificationsAuthorized: Bool?
     let protocolVersion: Int32
 
     private var controller: MacController!
@@ -46,6 +47,19 @@ final class AppModel: ObservableObject {
             self?.controller.replyToNotification(key: key, actionIndex: Int32(actionIndex), text: text)
         }
         controller.start()
+        refreshNotificationPermission()
+    }
+
+    func refreshNotificationPermission() {
+        notifier.authorized { ok in
+            Task { @MainActor in self.notificationsAuthorized = ok }
+        }
+    }
+
+    func openNotificationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     func loadPhotos() { controller.loadPhotos() }

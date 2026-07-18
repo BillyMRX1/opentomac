@@ -161,7 +161,14 @@ object AppRuntime {
             ).also { transferEngine = it }
             val notifications = NotificationAgent(
                 source = AndroidNotificationSource(),
-                send = { safeSend(ChannelId.EVENT, it) },
+                send = {
+                    Log.w(
+                        "opentomac",
+                        "notification -> Mac: ${it::class.simpleName} " +
+                            "state=${session.state.value::class.simpleName}",
+                    )
+                    safeSend(ChannelId.EVENT, it)
+                },
                 ownPackageId = appContext.packageName,
             ).also { notificationAgent = it }
             val androidMedia = AndroidMediaSource(appContext).also { mediaSource = it }
@@ -233,6 +240,15 @@ object AppRuntime {
             }
             initialized = true
             mutableReady.value = true
+            // Connect to the paired Mac without waiting for a dashboard tap, so entry
+            // points that never show the UI (tile, share sheet, text selection,
+            // notification mirroring after a process restart) come up working. The
+            // session manager keeps reconnecting on its own once this first attempt
+            // establishes the session.
+            ownerScope.launch {
+                val device = mutablePairedDevices.value.firstOrNull() ?: return@launch
+                if (session.state.value is ConnectionState.Idle) connect(device)
+            }
         }
     }
 
