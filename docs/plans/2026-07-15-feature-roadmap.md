@@ -77,8 +77,8 @@ The first marquee feature and a large one.
 
 DONE 2026-07-18 for the pipeline; the virtual camera is gated on Apple Developer signing (see docs/PHASE_D_CAMERA.md).
 - Android CameraX -> H.264 and AudioRecord -> AAC capture in a camera/microphone foreground service; camera_request/camera_stop/camera_config/camera_frame/audio_frame on the VIDEO channel. Camera and screen mirroring share one atomic capture-ownership state machine; every stop path releases camera+mic locally before a bounded peer notify.
-- macOS in-app Webcam preview window decodes and shows the stream end to end (works now, no signing needed) — this is the verifiable proof of the pipeline.
-- macOS CMIO system-extension target + OSSystemExtensionManager install flow are scaffolded and compile unsigned but are excluded from the default scheme; the virtual camera only appears in Zoom/Meet after the app is signed + notarized with a real DEVELOPMENT_TEAM and the extension is approved in System Settings. Steps in docs/PHASE_D_CAMERA.md. This is the one hard gate only the user can cross.
+- macOS in-app Webcam preview window decodes and shows the phone camera live (works now, free, no signing) — this is the shipped form of the feature.
+- The macOS virtual camera (CMIO system extension appearing inside Zoom/Meet) was removed 2026-07-18: it requires a signed + notarized build, i.e. a paid Apple Developer membership the project does not have, so the install path could only fail. If a Developer account is ever available, the pipeline (capture/stream/decode) is all in place; only a CMIO extension target + signing would need to be re-added.
 
 ## Phase E: messaging and calls (MSG-001..005, F05/F08)
 
