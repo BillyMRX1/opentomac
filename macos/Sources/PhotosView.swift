@@ -50,20 +50,23 @@ private struct ThumbnailCell: View {
     @State private var image: NSImage?
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8).fill(.quaternary)
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else {
-                ProgressView()
+        // The image lives in an overlay so the cell shape dictates layout; a bare
+        // scaledToFill Image proposes its own width and lets landscape photos
+        // spill across neighboring cells.
+        RoundedRectangle(cornerRadius: 8)
+            .fill(.quaternary)
+            .overlay {
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ProgressView()
+                }
             }
-        }
-        .frame(height: 110)
-        .clipped()
-        .contentShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .frame(height: 110)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         .onTapGesture { onOpen() }
         .accessibilityLabel("Open \(photo.name)")
         .contextMenu {
