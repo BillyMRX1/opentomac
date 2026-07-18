@@ -60,6 +60,8 @@ Also added in this phase: transfer cancel buttons on both apps (wired the existi
 
 ## Phase C: screen mirroring and remote control (MIR-001..007, F06/F07)
 
+C1 view-only mirroring DONE 2026-07-18 (pending device test): VIDEO channel; mirror_request/mirror_stop/video_config/video_frame; Android mediaProjection foreground service with consent flow (dashboard button or Mac-initiated request), H.264 surface encoder (1280 long edge, 6 Mbps, 30 fps, 2 s keyframes, drop-oldest queue); Mac viewer sheet on AVSampleBufferDisplayLayer (Annex-B to AVCC, keyframe gating, disconnect teardown). Accepted MVP limits: fire-and-forget start/stop, flush-only layer recovery, no rotation-change handling verified yet. C2 (remote control input injection) not started.
+
 The first marquee feature and a large one.
 - Android: `MediaProjection` capture (explicit system consent), hardware H.264/HEVC encode, and an `AccessibilityService` for injecting taps, scrolls, Back and Home (prominent-disclosure policy required).
 - macOS: hardware decode via VideoToolbox, a low-latency viewer window, and pointer and keyboard input relayed as normalized coordinates.
