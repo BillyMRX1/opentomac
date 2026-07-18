@@ -23,16 +23,20 @@ import dev.opentomac.shared.protocol.ChannelId
 import dev.opentomac.shared.protocol.MirrorStop
 import dev.opentomac.shared.session.ConnectionState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Foreground owner for the MediaProjection consent token and encoder resources. */
 class MirroringService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val ending = AtomicBoolean(false)
+    private val stopped = CompletableDeferred<Unit>()
     private var controller: ScreenMirrorController? = null
 
     override fun onCreate() {
@@ -69,7 +73,10 @@ class MirroringService : Service() {
             finish("Connection lost", notifyPeer = true)
             return START_NOT_STICKY
         }
-        AppRuntime.setMirroringActive(true)
+        if (!AppRuntime.activateMirroringCapture()) {
+            finish("Screen capture ownership lost", notifyPeer = true)
+            return START_NOT_STICKY
+        }
         try {
             // Android 14+ requires this after startForeground declared the
             // mediaProjection service type, which onCreate has done above.
@@ -101,31 +108,39 @@ class MirroringService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        AppRuntime.detachMirroringService()
-        AppRuntime.setMirroringActive(false)
-        serviceScope.launch {
-            controller?.close()
-            controller = null
-        }.invokeOnCompletion {
+        finish("Screen mirroring service stopped", notifyPeer = true).invokeOnCompletion {
+            AppRuntime.detachMirroringService()
             serviceScope.cancel()
         }
         super.onDestroy()
     }
 
-    private fun finish(reason: String, notifyPeer: Boolean) {
-        if (!ending.compareAndSet(false, true)) return
+    private fun finish(reason: String, notifyPeer: Boolean): Deferred<Unit> {
+        if (!ending.compareAndSet(false, true)) return stopped
         // Invalidate queued accessibility input before encoder/projection teardown,
         // which can take long enough for stale handler work to otherwise execute.
-        AppRuntime.setMirroringActive(false)
+        AppRuntime.beginMirroringCleanup()
         serviceScope.launch {
-            controller?.close()
-            controller = null
-            if (notifyPeer) AppRuntime.sendMirrorMessage(
-                ChannelId.EVENT,
-                MirrorStop(reason),
-            )
-            stopSelf()
+            try {
+                runCatching { controller?.close() }
+                    .onFailure { Log.w("opentomac", "screen mirror cleanup failed", it) }
+                controller = null
+                runCatching {
+                    ServiceCompat.stopForeground(this@MirroringService, ServiceCompat.STOP_FOREGROUND_REMOVE)
+                }.onFailure { Log.w("opentomac", "could not remove mirror foreground notification", it) }
+                runCatching { stopSelf() }
+                    .onFailure { Log.w("opentomac", "could not stop mirroring service", it) }
+                if (notifyPeer) {
+                    withTimeoutOrNull(STOP_SEND_TIMEOUT_MS) {
+                        AppRuntime.sendMirrorMessage(ChannelId.EVENT, MirrorStop(reason))
+                    }
+                }
+            } finally {
+                AppRuntime.releaseMirroringCapture()
+                stopped.complete(Unit)
+            }
         }
+        return stopped
     }
 
     private fun createNotificationChannel() {
@@ -182,6 +197,7 @@ class MirroringService : Service() {
         private const val EXTRA_BITRATE_BPS = "bitrate_bps"
         private const val DEFAULT_MAX_LONG_EDGE = 1280
         private const val DEFAULT_BITRATE_BPS = 6_000_000
+        private const val STOP_SEND_TIMEOUT_MS = 1_000L
 
         fun start(
             context: Context,

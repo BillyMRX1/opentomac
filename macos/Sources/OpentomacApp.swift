@@ -19,6 +19,12 @@ struct OpentomacApp: App {
         }
         .defaultSize(width: 360, height: 640)
 
+        Window("Webcam preview", id: "camera") {
+            CameraWindow()
+                .environmentObject(model)
+        }
+        .defaultSize(width: 960, height: 540)
+
         MenuBarExtra("opentomac", systemImage: "link") {
             MenuBarView()
                 .environmentObject(model)

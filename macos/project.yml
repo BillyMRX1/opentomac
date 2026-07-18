@@ -38,5 +38,38 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.opentomac.mac
+        # The system-extension.install entitlement (in Sources/Opentomac.entitlements)
+        # forces a provisioning profile, which the unsigned Debug build cannot supply.
+        # Re-add CODE_SIGN_ENTITLEMENTS once a DEVELOPMENT_TEAM is set (see
+        # docs/PHASE_D_CAMERA.md); the app builds and runs unsigned without it, only
+        # the camera-extension install path is unavailable until then.
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         ENABLE_PREVIEWS: "YES"
+  CameraExtension:
+    type: system-extension
+    platform: macOS
+    sources:
+      - path: CameraExtension
+        excludes:
+          - Info.plist
+          - CameraExtension.entitlements
+    info:
+      path: CameraExtension/Info.plist
+      properties:
+        CFBundleName: CameraExtension
+        CFBundleDisplayName: opentomac Camera
+        CFBundlePackageType: SYSX
+        NSSystemExtensionUsageDescription: opentomac exposes the paired phone camera to video apps.
+        CMIOExtension:
+          CMIOExtensionMachServiceName: $(TeamIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.opentomac.mac.CameraExtension
+        PRODUCT_NAME: CameraExtension
+        CODE_SIGN_ENTITLEMENTS: CameraExtension/CameraExtension.entitlements
+        ENABLE_APP_SANDBOX: "YES"
+        SKIP_INSTALL: "YES"
+        GENERATE_INFOPLIST_FILE: "NO"
+# CameraExtension intentionally is not an Opentomac dependency. The normal
+# unsigned Debug scheme remains buildable; signed distribution builds should
+# embed CameraExtension.systemextension after configuring DEVELOPMENT_TEAM.

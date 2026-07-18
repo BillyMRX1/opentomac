@@ -435,6 +435,89 @@ data class VideoFrame(
     }
 }
 
+// --- Camera & mic ---
+
+@Serializable
+@SerialName("camera_request")
+data class CameraRequest(
+    /** Camera lens requested by the Mac: "front" or "back". */
+    @ProtoNumber(1) val facing: String,
+    @ProtoNumber(2) val withAudio: Boolean,
+) : Message
+
+@Serializable
+@SerialName("camera_stop")
+data class CameraStop(
+    @ProtoNumber(1) val reason: String,
+) : Message
+
+/** H.264 stream description. [csd0] and [csd1] carry SPS and PPS bytes. */
+@Serializable
+@SerialName("camera_config")
+data class CameraConfig(
+    @ProtoNumber(1) val width: Int,
+    @ProtoNumber(2) val height: Int,
+    @ProtoNumber(3) val csd0: ByteArray,
+    @ProtoNumber(4) val csd1: ByteArray,
+    @ProtoNumber(5) val frameRate: Int,
+) : Message {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is CameraConfig) return false
+        return width == other.width &&
+            height == other.height &&
+            csd0.contentEquals(other.csd0) &&
+            csd1.contentEquals(other.csd1) &&
+            frameRate == other.frameRate
+    }
+
+    override fun hashCode(): Int {
+        var result = width
+        result = 31 * result + height
+        result = 31 * result + csd0.contentHashCode()
+        result = 31 * result + csd1.contentHashCode()
+        result = 31 * result + frameRate
+        return result
+    }
+}
+
+@Serializable
+@SerialName("camera_frame")
+data class CameraFrame(
+    @ProtoNumber(1) val ptsUs: Long,
+    @ProtoNumber(2) val keyframe: Boolean,
+    @ProtoNumber(3) val data: ByteArray,
+) : Message {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is CameraFrame) return false
+        return ptsUs == other.ptsUs && keyframe == other.keyframe && data.contentEquals(other.data)
+    }
+
+    override fun hashCode(): Int {
+        var result = ptsUs.hashCode()
+        result = 31 * result + keyframe.hashCode()
+        result = 31 * result + data.contentHashCode()
+        return result
+    }
+}
+
+/** One AAC-LC access unit, including its seven-byte ADTS header. */
+@Serializable
+@SerialName("audio_frame")
+data class AudioFrame(
+    @ProtoNumber(1) val ptsUs: Long,
+    @ProtoNumber(2) val data: ByteArray,
+) : Message {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is AudioFrame) return false
+        return ptsUs == other.ptsUs && data.contentEquals(other.data)
+    }
+
+    override fun hashCode(): Int = 31 * ptsUs.hashCode() + data.contentHashCode()
+}
+
 // --- Remote input ---
 
 @Serializable

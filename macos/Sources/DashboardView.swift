@@ -20,6 +20,10 @@ struct DashboardView: View {
                     openWindow(id: "mirror")
                     if !model.mirrorActive { model.startMirror() }
                 }
+                Button("Webcam preview") {
+                    openWindow(id: "camera")
+                    if !model.cameraActive { model.startCamera() }
+                }
                 Button("Photos") { showPhotos = true }
                 Button("Contacts") { showContacts = true }
                 Button("Messages") { showMessages = true }
@@ -30,6 +34,17 @@ struct DashboardView: View {
                 }
             }
             Text(model.connectionStatus).foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                Button("Install camera extension") { model.installCameraExtension() }
+                Text(model.cameraExtensionStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("Requires an Apple Developer-signed and notarized build")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
 
             if model.nowPlaying.hasSession {
                 HStack(spacing: 12) {

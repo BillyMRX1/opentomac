@@ -3,6 +3,7 @@ package dev.opentomac.android.ui
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -12,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -66,12 +68,26 @@ import kotlinx.coroutines.launch
 
 /** Single-activity host for the dashboard and pairing screens. */
 class MainActivity : ComponentActivity() {
+    private var pendingCameraRequest: Pair<String, Boolean>? = null
+    private val cameraPermissions = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        val request = pendingCameraRequest ?: return@registerForActivityResult
+        pendingCameraRequest = null
+        // AppRuntime performs the authoritative permission check and sends a
+        // CameraStop reason to the Mac if either requested grant was denied.
+        AppRuntime.startCamera(facing = request.first, withAudio = request.second)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         startConnectionService()
         setContent { OpentomacApp() }
         if (intent.getBooleanExtra(AppRuntime.EXTRA_REQUEST_MIRROR_CONSENT, false)) {
             requestMirrorConsent(intent)
+        }
+        if (intent.getBooleanExtra(AppRuntime.EXTRA_REQUEST_CAMERA, false)) {
+            requestCamera(intent)
         }
     }
 
@@ -81,12 +97,42 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(AppRuntime.EXTRA_REQUEST_MIRROR_CONSENT, false)) {
             requestMirrorConsent(intent)
         }
+        if (intent.getBooleanExtra(AppRuntime.EXTRA_REQUEST_CAMERA, false)) {
+            requestCamera(intent)
+        }
     }
 
     private fun requestMirrorConsent(intent: Intent) {
         AppRuntime.requestMirrorConsentFromUi(
             maxLongEdge = intent.getIntExtra(AppRuntime.EXTRA_MIRROR_MAX_LONG_EDGE, 1280),
             bitrateBps = intent.getIntExtra(AppRuntime.EXTRA_MIRROR_BITRATE_BPS, 6_000_000),
+        )
+    }
+
+    private fun requestCamera(intent: Intent) {
+        requestCameraAccess(
+            facing = intent.getStringExtra(AppRuntime.EXTRA_CAMERA_FACING) ?: "front",
+            withAudio = intent.getBooleanExtra(AppRuntime.EXTRA_CAMERA_WITH_AUDIO, true),
+        )
+    }
+
+    fun requestCameraAccess(facing: String, withAudio: Boolean) {
+        val cameraGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        val audioGranted = !withAudio || ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (cameraGranted && audioGranted) {
+            AppRuntime.startCamera(facing, withAudio)
+            return
+        }
+        pendingCameraRequest = facing to withAudio
+        cameraPermissions.launch(
+            buildList {
+                add(Manifest.permission.CAMERA)
+                if (withAudio) add(Manifest.permission.RECORD_AUDIO)
+            }.toTypedArray(),
         )
     }
 
@@ -184,6 +230,13 @@ private fun OpentomacApp() {
                         },
                         onMirror = requestMirrorConsent,
                         onStopMirroring = AppRuntime::stopMirroring,
+                        onCamera = {
+                            (context as? MainActivity)?.requestCameraAccess(
+                                facing = "front",
+                                withAudio = true,
+                            )
+                        },
+                        onStopCamera = AppRuntime::stopCamera,
                     )
                     Screen.PAIR -> PairScreen(onDone = { screen = Screen.DASHBOARD })
                 }
@@ -202,6 +255,8 @@ private fun DashboardScreen(
     onAutoSendScreenshotsChanged: (Boolean) -> Unit,
     onMirror: () -> Unit,
     onStopMirroring: () -> Unit,
+    onCamera: () -> Unit,
+    onStopCamera: () -> Unit,
 ) {
     val state by AppRuntime.connectionState.collectAsStateWithLifecycle()
     val devices by AppRuntime.pairedDevices.collectAsStateWithLifecycle()
@@ -209,6 +264,7 @@ private fun DashboardScreen(
     val autoSendScreenshots by AppRuntime.autoSendScreenshots.collectAsStateWithLifecycle()
     val ready by AppRuntime.ready.collectAsStateWithLifecycle()
     val mirroring by AppRuntime.mirroring.collectAsStateWithLifecycle()
+    val cameraStreaming by AppRuntime.cameraStreaming.collectAsStateWithLifecycle()
 
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -234,8 +290,17 @@ private fun DashboardScreen(
     } else {
         Button(
             onClick = onMirror,
-            enabled = state is ConnectionState.Connected,
+            enabled = state is ConnectionState.Connected && !cameraStreaming,
         ) { Text("Mirror to Mac") }
+    }
+    Spacer(Modifier.height(8.dp))
+    if (cameraStreaming) {
+        OutlinedButton(onClick = onStopCamera) { Text("Stop Mac webcam") }
+    } else {
+        Button(
+            onClick = onCamera,
+            enabled = state is ConnectionState.Connected && !mirroring,
+        ) { Text("Use as Mac webcam") }
     }
 
     Spacer(Modifier.height(8.dp))
