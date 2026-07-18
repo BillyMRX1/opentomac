@@ -181,6 +181,12 @@ class MessagesTest {
             name = "Screenshot_20260718.jpg",
         )
         assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+
+        val defaults = assertIs<MirrorRequest>(
+            roundTrip(MirrorRequest(requestedAtMs = 1), channel = ChannelId.EVENT),
+        )
+        assertEquals(1280, defaults.maxLongEdge)
+        assertEquals(6_000_000, defaults.bitrateBps)
     }
 
     @Test
@@ -219,7 +225,11 @@ class MessagesTest {
 
     @Test
     fun mirrorRequestRoundTrip() {
-        val msg = MirrorRequest(requestedAtMs = 1_720_000_000_789)
+        val msg = MirrorRequest(
+            requestedAtMs = 1_720_000_000_789,
+            maxLongEdge = 1920,
+            bitrateBps = 10_000_000,
+        )
         assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
     }
 

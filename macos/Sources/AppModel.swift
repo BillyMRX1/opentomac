@@ -10,6 +10,38 @@ struct NowPlayingState {
     let hasSession: Bool
 }
 
+enum MirrorQualityPreset: String, CaseIterable, Identifiable {
+    case low
+    case balanced
+    case sharp
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .low: return "Low"
+        case .balanced: return "Balanced"
+        case .sharp: return "Sharp"
+        }
+    }
+
+    var maxLongEdge: Int32 {
+        switch self {
+        case .low: return 854
+        case .balanced: return 1280
+        case .sharp: return 1920
+        }
+    }
+
+    var bitrateBps: Int32 {
+        switch self {
+        case .low: return 2_000_000
+        case .balanced: return 6_000_000
+        case .sharp: return 10_000_000
+        }
+    }
+}
+
 /// Bridges the Kotlin `MacController` to SwiftUI. Controller callbacks are
 /// marshaled onto the main queue before touching published state; video frames
 /// go directly to the renderer's serial queue.
@@ -27,6 +59,8 @@ final class AppModel: ObservableObject {
     @Published var mirrorActive = false
     @Published var mirrorConfigured = false
     @Published var mirrorStoppedReason: String?
+    @Published var mirrorVideoSize: CGSize?
+    @Published private(set) var mirrorQuality: MirrorQualityPreset
     @Published var nowPlaying = NowPlayingState(
         appName: "",
         title: "",
@@ -39,8 +73,13 @@ final class AppModel: ObservableObject {
 
     private var controller: MacController!
     private let notifier = NotificationBridge()
+    private var mirrorRestartTask: Task<Void, Never>?
+    private static let mirrorQualityDefaultsKey = "mirrorQualityPreset"
 
     init() {
+        mirrorQuality = UserDefaults.standard.string(forKey: Self.mirrorQualityDefaultsKey)
+            .flatMap(MirrorQualityPreset.init(rawValue:))
+            ?? .balanced
         protocolVersion = ProtocolCodec.shared.PROTOCOL_VERSION
         videoRenderer = VideoRenderer()
         let renderer = videoRenderer
@@ -99,6 +138,10 @@ final class AppModel: ObservableObject {
                 )
                 Task { @MainActor in
                     guard self?.mirrorActive == true else { return }
+                    self?.mirrorVideoSize = CGSize(
+                        width: Int(width.int32Value),
+                        height: Int(height.int32Value)
+                    )
                     self?.mirrorConfigured = true
                     self?.mirrorStoppedReason = nil
                 }
@@ -113,6 +156,8 @@ final class AppModel: ObservableObject {
             onMirrorStopped: { [weak self] reason in
                 renderer.reset()
                 Task { @MainActor in
+                    self?.mirrorRestartTask?.cancel()
+                    self?.mirrorRestartTask = nil
                     self?.mirrorActive = false
                     self?.mirrorConfigured = false
                     self?.mirrorStoppedReason = reason
@@ -177,19 +222,46 @@ final class AppModel: ObservableObject {
     func mediaControl(_ command: String) { controller.mediaControl(command: command) }
 
     func startMirror() {
+        mirrorRestartTask?.cancel()
+        mirrorRestartTask = nil
         videoRenderer.reset()
         mirrorActive = true
         mirrorConfigured = false
         mirrorStoppedReason = nil
-        controller.requestMirror()
+        controller.requestMirror(
+            maxLongEdge: mirrorQuality.maxLongEdge,
+            bitrateBps: mirrorQuality.bitrateBps
+        )
     }
 
     func stopMirror() {
+        mirrorRestartTask?.cancel()
+        mirrorRestartTask = nil
         guard mirrorActive || mirrorConfigured else { return }
         controller.stopMirror()
         videoRenderer.reset()
         mirrorActive = false
         mirrorConfigured = false
+    }
+
+    func setMirrorQuality(_ quality: MirrorQualityPreset) {
+        guard quality != mirrorQuality else { return }
+        mirrorQuality = quality
+        UserDefaults.standard.set(quality.rawValue, forKey: Self.mirrorQualityDefaultsKey)
+        guard mirrorActive else { return }
+
+        mirrorRestartTask?.cancel()
+        controller.stopMirror()
+        videoRenderer.reset()
+        mirrorActive = false
+        mirrorConfigured = false
+        mirrorStoppedReason = nil
+        mirrorRestartTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.mirrorRestartTask = nil
+            self.startMirror()
+        }
     }
 
     func cancelTransfer(_ id: String) { controller.cancelTransfer(jobId: id) }

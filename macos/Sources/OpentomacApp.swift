@@ -13,6 +13,12 @@ struct OpentomacApp: App {
         }
         .windowResizability(.contentSize)
 
+        Window("Phone screen", id: "mirror") {
+            MirrorWindow()
+                .environmentObject(model)
+        }
+        .defaultSize(width: 360, height: 640)
+
         MenuBarExtra("opentomac", systemImage: "link") {
             MenuBarView()
                 .environmentObject(model)

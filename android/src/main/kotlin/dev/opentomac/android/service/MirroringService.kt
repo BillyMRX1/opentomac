@@ -57,6 +57,10 @@ class MirroringService : Service() {
         val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
             ?: Activity.RESULT_CANCELED
         val resultData = intent?.projectionData()
+        val maxLongEdge = intent?.getIntExtra(EXTRA_MAX_LONG_EDGE, DEFAULT_MAX_LONG_EDGE)
+            ?: DEFAULT_MAX_LONG_EDGE
+        val bitrateBps = intent?.getIntExtra(EXTRA_BITRATE_BPS, DEFAULT_BITRATE_BPS)
+            ?: DEFAULT_BITRATE_BPS
         if (resultCode != Activity.RESULT_OK || resultData == null) {
             finish("Screen capture permission unavailable", notifyPeer = true)
             return START_NOT_STICKY
@@ -74,6 +78,8 @@ class MirroringService : Service() {
             val mirror = ScreenMirrorController(
                 context = applicationContext,
                 projection = projection,
+                maxLongEdge = maxLongEdge,
+                bitrateBps = bitrateBps,
                 send = AppRuntime::sendMirrorMessage,
                 onProjectionStopped = {
                     finish("Screen capture stopped", notifyPeer = true)
@@ -170,11 +176,23 @@ class MirroringService : Service() {
         private const val EXTRA_RESULT_CODE = "result_code"
         private const val EXTRA_RESULT_DATA = "result_data"
         private const val EXTRA_REASON = "reason"
+        private const val EXTRA_MAX_LONG_EDGE = "max_long_edge"
+        private const val EXTRA_BITRATE_BPS = "bitrate_bps"
+        private const val DEFAULT_MAX_LONG_EDGE = 1280
+        private const val DEFAULT_BITRATE_BPS = 6_000_000
 
-        fun start(context: Context, resultCode: Int, data: Intent) {
+        fun start(
+            context: Context,
+            resultCode: Int,
+            data: Intent,
+            maxLongEdge: Int,
+            bitrateBps: Int,
+        ) {
             val intent = Intent(context, MirroringService::class.java).apply {
                 putExtra(EXTRA_RESULT_CODE, resultCode)
                 putExtra(EXTRA_RESULT_DATA, data)
+                putExtra(EXTRA_MAX_LONG_EDGE, maxLongEdge)
+                putExtra(EXTRA_BITRATE_BPS, bitrateBps)
             }
             ContextCompat.startForegroundService(context, intent)
         }

@@ -4,10 +4,10 @@ import OpentomacShared
 
 struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.openWindow) private var openWindow
     @State private var showPairing = false
     @State private var showPhotos = false
     @State private var showContacts = false
-    @State private var showMirror = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -15,8 +15,8 @@ struct DashboardView: View {
                 Text("opentomac").font(.largeTitle.bold())
                 Spacer()
                 Button("Mirror phone") {
-                    showMirror = true
-                    model.startMirror()
+                    openWindow(id: "mirror")
+                    if !model.mirrorActive { model.startMirror() }
                 }
                 Button("Photos") { showPhotos = true }
                 Button("Contacts") { showContacts = true }
@@ -153,10 +153,6 @@ struct DashboardView: View {
         }
         .sheet(isPresented: $showContacts) {
             ContactsView(isPresented: $showContacts)
-                .environmentObject(model)
-        }
-        .sheet(isPresented: $showMirror, onDismiss: { model.stopMirror() }) {
-            MirrorWindow(isPresented: $showMirror)
                 .environmentObject(model)
         }
     }

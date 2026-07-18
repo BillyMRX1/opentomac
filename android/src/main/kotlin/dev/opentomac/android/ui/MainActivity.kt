@@ -65,7 +65,7 @@ class MainActivity : ComponentActivity() {
         startConnectionService()
         setContent { OpentomacApp() }
         if (intent.getBooleanExtra(AppRuntime.EXTRA_REQUEST_MIRROR_CONSENT, false)) {
-            AppRuntime.requestMirrorConsentFromUi()
+            requestMirrorConsent(intent)
         }
     }
 
@@ -73,8 +73,15 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra(AppRuntime.EXTRA_REQUEST_MIRROR_CONSENT, false)) {
-            AppRuntime.requestMirrorConsentFromUi()
+            requestMirrorConsent(intent)
         }
+    }
+
+    private fun requestMirrorConsent(intent: Intent) {
+        AppRuntime.requestMirrorConsentFromUi(
+            maxLongEdge = intent.getIntExtra(AppRuntime.EXTRA_MIRROR_MAX_LONG_EDGE, 1280),
+            bitrateBps = intent.getIntExtra(AppRuntime.EXTRA_MIRROR_BITRATE_BPS, 6_000_000),
+        )
     }
 
     private fun startConnectionService() {

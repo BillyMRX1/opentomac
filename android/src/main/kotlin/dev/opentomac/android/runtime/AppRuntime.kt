@@ -93,8 +93,12 @@ object AppRuntime {
     private const val LINKS_CHANNEL_ID = "opentomac_links"
     private const val MIRROR_REQUESTS_CHANNEL_ID = "opentomac_mirror_requests"
     private const val MIRROR_REQUEST_NOTIFICATION_ID = 1003
+    private const val DEFAULT_MIRROR_MAX_LONG_EDGE = 1280
+    private const val DEFAULT_MIRROR_BITRATE_BPS = 6_000_000
     private const val SCREENSHOT_DEBOUNCE_MS = 650L
     const val EXTRA_REQUEST_MIRROR_CONSENT = "request_mirror_consent"
+    const val EXTRA_MIRROR_MAX_LONG_EDGE = "mirror_max_long_edge"
+    const val EXTRA_MIRROR_BITRATE_BPS = "mirror_bitrate_bps"
 
     private val initMutex = Mutex()
     private var initialized = false
@@ -123,6 +127,8 @@ object AppRuntime {
     private var lastSeenImageId = 0L
     @Volatile
     private var mirroringServiceStopper: ((String, Boolean) -> Unit)? = null
+    @Volatile
+    private var pendingMirrorQuality = MirrorQuality()
 
     private val mutableConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Unpaired)
     val connectionState: StateFlow<ConnectionState> = mutableConnectionState.asStateFlow()
@@ -271,7 +277,7 @@ object AppRuntime {
                     is ClipboardItemMsg -> sync.onRemoteItem(message)
                     is MediaControl -> mediaRemote.onControl(message)
                     is OpenUrl -> handleOpenUrlFromPeer(appContext, message.url)
-                    is MirrorRequest -> handleMirrorRequest(appContext)
+                    is MirrorRequest -> handleMirrorRequest(appContext, message)
                     is MirrorStop -> {
                         appContext.getSystemService(NotificationManager::class.java)
                             .cancel(MIRROR_REQUEST_NOTIFICATION_ID)
@@ -367,7 +373,16 @@ object AppRuntime {
             mutableNotice.value = "Not connected to a device"
             return
         }
-        runCatching { MirroringService.start(context, resultCode, data) }
+        val quality = pendingMirrorQuality
+        runCatching {
+            MirroringService.start(
+                context = context,
+                resultCode = resultCode,
+                data = data,
+                maxLongEdge = quality.maxLongEdge,
+                bitrateBps = quality.bitrateBps,
+            )
+        }
             .onFailure {
                 Log.w("opentomac", "could not launch mirroring service", it)
                 mutableNotice.value = "Could not start screen mirroring: ${it.userMessage()}"
@@ -382,8 +397,12 @@ object AppRuntime {
         mutableMirrorConsentRequested.value = false
     }
 
-    fun requestMirrorConsentFromUi() {
+    fun requestMirrorConsentFromUi(
+        maxLongEdge: Int = DEFAULT_MIRROR_MAX_LONG_EDGE,
+        bitrateBps: Int = DEFAULT_MIRROR_BITRATE_BPS,
+    ) {
         if (connectionState.value is ConnectionState.Connected && !mutableMirroring.value) {
+            pendingMirrorQuality = MirrorQuality(maxLongEdge, bitrateBps)
             mutableMirrorConsentRequested.value = true
         }
     }
@@ -630,12 +649,12 @@ object AppRuntime {
 
     private fun stopMirroring(reason: String, notifyPeer: Boolean) {
         mutableMirrorConsentRequested.value = false
+        mutableMirroring.value = false
         val stopper = mirroringServiceStopper
         if (stopper != null) {
             stopper(reason, notifyPeer)
         } else {
             appContext?.stopService(Intent(appContext, MirroringService::class.java))
-            mutableMirroring.value = false
         }
     }
 
@@ -827,8 +846,10 @@ object AppRuntime {
             .onFailure { Log.w("opentomac", "could not post URL notification", it) }
     }
 
-    private fun handleMirrorRequest(context: Context) {
+    private fun handleMirrorRequest(context: Context, request: MirrorRequest) {
         if (mutableMirroring.value) return
+        val quality = MirrorQuality(request.maxLongEdge, request.bitrateBps)
+        pendingMirrorQuality = quality
         val foreground = ProcessLifecycleOwner.get().lifecycle.currentState
             .isAtLeast(Lifecycle.State.STARTED)
         if (foreground) {
@@ -849,6 +870,8 @@ object AppRuntime {
             0,
             Intent(context, dev.opentomac.android.ui.MainActivity::class.java).apply {
                 putExtra(EXTRA_REQUEST_MIRROR_CONSENT, true)
+                putExtra(EXTRA_MIRROR_MAX_LONG_EDGE, quality.maxLongEdge)
+                putExtra(EXTRA_MIRROR_BITRATE_BPS, quality.bitrateBps)
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -869,6 +892,16 @@ object AppRuntime {
         runCatching { manager.notify(MIRROR_REQUEST_NOTIFICATION_ID, notification) }
             .onSuccess { Log.w("opentomac", "posted screen mirror consent notification") }
             .onFailure { Log.w("opentomac", "could not post screen mirror consent notification", it) }
+    }
+
+    private data class MirrorQuality(
+        val maxLongEdge: Int = DEFAULT_MIRROR_MAX_LONG_EDGE,
+        val bitrateBps: Int = DEFAULT_MIRROR_BITRATE_BPS,
+    ) {
+        init {
+            require(maxLongEdge > 0) { "Mirror long edge must be positive" }
+            require(bitrateBps > 0) { "Mirror bitrate must be positive" }
+        }
     }
 
     private fun webUriOrNull(value: String): Uri? {

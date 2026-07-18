@@ -375,6 +375,8 @@ data class ThumbnailResponse(
 @SerialName("mirror_request")
 data class MirrorRequest(
     @ProtoNumber(1) val requestedAtMs: Long,
+    @ProtoNumber(2) val maxLongEdge: Int = 1280,
+    @ProtoNumber(3) val bitrateBps: Int = 6_000_000,
 ) : Message
 
 @Serializable

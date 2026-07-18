@@ -255,43 +255,176 @@ final class VideoRenderer: ObservableObject {
 
 struct MirrorWindow: View {
     @EnvironmentObject private var model: AppModel
-    @Binding var isPresented: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Phone screen").font(.title2.bold())
-                Spacer()
-                Button("Close") { close() }
-                    .keyboardShortcut(.cancelAction)
-            }
-
-            Text(statusText)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
+        ZStack {
             MirrorVideoSurface(renderer: model.videoRenderer)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.black)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            if let reason = model.mirrorStoppedReason {
+                VStack(spacing: 10) {
+                    Text("Mirroring ended: \(reason)")
+                        .multilineTextAlignment(.center)
+                    Button("Retry") { model.startMirror() }
+                        .keyboardShortcut(.defaultAction)
+                }
+                .padding(14)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            } else if !model.mirrorConfigured {
+                Text("Waiting for the phone…")
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.black.opacity(0.55), in: Capsule())
+            }
         }
-        .padding(20)
-        .frame(minWidth: 480, minHeight: 400)
+        .background(.black)
+        .frame(minWidth: 220, minHeight: 180)
+        .background(
+            MirrorWindowAccessor(videoSize: model.mirrorVideoSize) {
+                model.stopMirror()
+            }
+        )
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Picker(
+                    "Quality",
+                    selection: Binding(
+                        get: { model.mirrorQuality },
+                        set: model.setMirrorQuality
+                    )
+                ) {
+                    ForEach(MirrorQualityPreset.allCases) { preset in
+                        Text(preset.title).tag(preset)
+                    }
+                }
+                .pickerStyle(.menu)
+                .help("Mirroring quality")
+            }
+        }
+    }
+}
+
+private struct MirrorWindowAccessor: NSViewRepresentable {
+    let videoSize: CGSize?
+    let onClose: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onClose: onClose)
     }
 
-    private var statusText: String {
-        if let reason = model.mirrorStoppedReason {
-            return "Mirroring ended: \(reason)"
+    func makeNSView(context: Context) -> WindowProbeView {
+        let view = WindowProbeView()
+        view.onWindowChanged = { [weak coordinator = context.coordinator] window in
+            coordinator?.attach(to: window)
         }
-        if !model.mirrorConfigured {
-            return "Waiting for the phone… accept the prompt on the phone"
-        }
-        return "Mirroring live"
+        return view
     }
 
-    private func close() {
-        model.stopMirror()
-        isPresented = false
+    func updateNSView(_ nsView: WindowProbeView, context: Context) {
+        context.coordinator.onClose = onClose
+        context.coordinator.videoSize = videoSize
+        context.coordinator.attach(to: nsView.window)
+    }
+
+    final class Coordinator {
+        var onClose: () -> Void
+        var videoSize: CGSize? {
+            didSet { applyVideoSize() }
+        }
+
+        private weak var window: NSWindow?
+        private var closeObserver: NSObjectProtocol?
+        private var exitFullscreenObserver: NSObjectProtocol?
+        private var appliedVideoSize: CGSize?
+
+        init(onClose: @escaping () -> Void) {
+            self.onClose = onClose
+        }
+
+        deinit {
+            if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+            if let exitFullscreenObserver {
+                NotificationCenter.default.removeObserver(exitFullscreenObserver)
+            }
+        }
+
+        func attach(to newWindow: NSWindow?) {
+            guard let newWindow, window !== newWindow else {
+                applyVideoSize()
+                return
+            }
+            if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+            if let exitFullscreenObserver {
+                NotificationCenter.default.removeObserver(exitFullscreenObserver)
+            }
+
+            window = newWindow
+            appliedVideoSize = nil
+            closeObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: newWindow,
+                queue: .main
+            ) { [weak self] _ in
+                self?.onClose()
+            }
+            exitFullscreenObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didExitFullScreenNotification,
+                object: newWindow,
+                queue: .main
+            ) { [weak self] _ in
+                self?.applyVideoSize()
+            }
+            applyVideoSize()
+        }
+
+        private func applyVideoSize() {
+            guard
+                let window,
+                let videoSize,
+                videoSize.width > 0,
+                videoSize.height > 0
+            else { return }
+
+            window.contentAspectRatio = NSSize(
+                width: videoSize.width,
+                height: videoSize.height
+            )
+            guard
+                !window.styleMask.contains(.fullScreen),
+                appliedVideoSize != videoSize
+            else { return }
+
+            appliedVideoSize = videoSize
+            let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame
+                ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            var height = min(max(visibleFrame.height * 0.4, 320), 640)
+            var width = height * videoSize.width / videoSize.height
+            if width > visibleFrame.width * 0.8 {
+                width = visibleFrame.width * 0.8
+                height = width * videoSize.height / videoSize.width
+            }
+
+            let contentRect = NSRect(origin: .zero, size: NSSize(width: width, height: height))
+            var frame = window.frameRect(forContentRect: contentRect)
+            frame.origin.x = window.frame.midX - frame.width / 2
+            frame.origin.y = window.frame.maxY - frame.height
+            frame.origin.x = min(max(frame.origin.x, visibleFrame.minX), visibleFrame.maxX - frame.width)
+            frame.origin.y = min(max(frame.origin.y, visibleFrame.minY), visibleFrame.maxY - frame.height)
+            window.setFrame(frame, display: true, animate: window.isVisible)
+        }
+    }
+}
+
+private final class WindowProbeView: NSView {
+    var onWindowChanged: ((NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        let currentWindow = window
+        DispatchQueue.main.async { [weak self] in
+            self?.onWindowChanged?(currentWindow)
+        }
     }
 }
 

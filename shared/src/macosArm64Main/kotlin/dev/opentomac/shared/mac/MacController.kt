@@ -416,9 +416,18 @@ class MacController(
     }
 
     /** Asks the connected Android device to begin a MediaProjection mirror session. */
-    fun requestMirror() {
-        println("opentomac mirror: requesting phone screen")
-        scope.launch { safeSend(ChannelId.EVENT, MirrorRequest(SystemClock.nowMs())) }
+    fun requestMirror(maxLongEdge: Int, bitrateBps: Int) {
+        println("opentomac mirror: requesting phone screen at $maxLongEdge / $bitrateBps bps")
+        scope.launch {
+            safeSend(
+                ChannelId.EVENT,
+                MirrorRequest(
+                    requestedAtMs = SystemClock.nowMs(),
+                    maxLongEdge = maxLongEdge,
+                    bitrateBps = bitrateBps,
+                ),
+            )
+        }
     }
 
     /** Stops the current mirror session on the connected Android device. */
