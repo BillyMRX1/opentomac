@@ -354,6 +354,11 @@ class MacController(
         }
     }
 
+    /** Cancels an in-progress transfer on either direction; the peer is notified. */
+    fun cancelTransfer(jobId: String) {
+        scope.launch { transferEngine.cancel(jobId) }
+    }
+
     /** Requests the original phone photo; it arrives through the normal transfer pipeline. */
     fun importPhoto(id: String) {
         scope.launch { safeSend(ChannelId.BULK, MediaFetchRequest(id)) }

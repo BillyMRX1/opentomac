@@ -207,6 +207,7 @@ private fun NotificationAccessRow() {
 private fun TransferRow(job: TransferJob) {
     val progress by job.progress.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val name = job.files.firstOrNull()?.name ?: "files"
     val label = if (job.direction == TransferDirection.RECEIVE) "Received" else "Sent"
     val pct = if (progress.totalBytes > 0) {
@@ -228,6 +229,10 @@ private fun TransferRow(job: TransferJob) {
                     progress = { pct / 100f },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = { scope.launch { AppRuntime.cancelTransfer(job.jobId) } },
+                ) { Text("Cancel") }
             }
             if (done && job.direction == TransferDirection.RECEIVE) {
                 Spacer(Modifier.height(6.dp))

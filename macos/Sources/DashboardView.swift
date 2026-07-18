@@ -67,7 +67,7 @@ struct DashboardView: View {
                     Button("Show received") { model.revealReceived() }
                 }
                 ForEach(model.transfers, id: \.id) { transfer in
-                    TransferRow(transfer: transfer)
+                    TransferRow(transfer: transfer) { model.cancelTransfer(transfer.id) }
                 }
             }
 
@@ -120,6 +120,7 @@ struct DashboardView: View {
 
 private struct TransferRow: View {
     let transfer: MacTransfer
+    let onCancel: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -130,7 +131,11 @@ private struct TransferRow: View {
                 Text(transfer.state.capitalized).font(.caption).foregroundStyle(.secondary)
             }
             if !["DONE", "FAILED", "CANCELLED"].contains(transfer.state) {
-                ProgressView(value: Double(transfer.percent) / 100.0)
+                HStack(spacing: 12) {
+                    ProgressView(value: Double(transfer.percent) / 100.0)
+                    Button("Cancel") { onCancel() }
+                        .controlSize(.small)
+                }
             }
         }
         .padding(.vertical, 4)

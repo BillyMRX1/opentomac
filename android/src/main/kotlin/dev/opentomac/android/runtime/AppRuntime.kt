@@ -370,6 +370,10 @@ object AppRuntime {
         return payload.toBase64()
     }
 
+    suspend fun cancelTransfer(jobId: String) {
+        transferEngine?.cancel(jobId)
+    }
+
     suspend fun sendClipboard(): Boolean {
         val item = clipboard?.readCurrent()
         if (item == null) {
