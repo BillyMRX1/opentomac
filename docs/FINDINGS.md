@@ -14,7 +14,7 @@ Read this together with `docs/HANDOVER.md` before continuing work.
 | Clipboard Android to Mac, images | Same as text; screenshots never sync (bug, see F2) |
 | Photos grid on Mac | PASS after F3 fix (verified 2026-07-17); photo import verified too, click-to-preview UI added on user feedback |
 | File transfer both directions | PASS ("flawless") |
-| Notification mirroring | Not yet tested; user needs instructions (see F4) |
+| Notification mirroring | PASS (verified 2026-07-18; banners were being suppressed by the macOS display layer, not the app). Inline reply from the Mac banner still unverified. |
 
 ## F1. Android to Mac requires opening the app (EXPECTED BEHAVIOR)
 
