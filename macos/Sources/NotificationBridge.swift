@@ -7,11 +7,18 @@ import UserNotifications
 @MainActor
 final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
     static let replyCategory = "opentomac.reply"
+    static let screenshotCategory = "opentomac.screenshot"
+    private nonisolated static let screenshotSendAction = "opentomac.screenshot.send"
     private let center = UNUserNotificationCenter.current()
     private var onReply: ((String, Int, String) -> Void)?
+    private var onScreenshotSend: ((String) -> Void)?
 
-    func start(onReply: @escaping (String, Int, String) -> Void) {
+    func start(
+        onReply: @escaping (String, Int, String) -> Void,
+        onScreenshotSend: @escaping (String) -> Void
+    ) {
         self.onReply = onReply
+        self.onScreenshotSend = onScreenshotSend
         center.delegate = self
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             NSLog("opentomac notifications: authorization granted=\(granted) error=\(error?.localizedDescription ?? "none")")
@@ -23,13 +30,43 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
             textInputButtonTitle: "Send",
             textInputPlaceholder: "Reply"
         )
-        let category = UNNotificationCategory(
+        let replyCategory = UNNotificationCategory(
             identifier: Self.replyCategory,
             actions: [replyAction],
             intentIdentifiers: [],
             options: []
         )
-        center.setNotificationCategories([category])
+        let sendAction = UNNotificationAction(
+            identifier: Self.screenshotSendAction,
+            title: "Send to Mac",
+            options: []
+        )
+        let screenshotCategory = UNNotificationCategory(
+            identifier: Self.screenshotCategory,
+            actions: [sendAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        center.setNotificationCategories([replyCategory, screenshotCategory])
+    }
+
+    /** Offers a fresh phone screenshot; the Send action fetches the original. */
+    func presentScreenshot(name: String, mediaId: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "Screenshot on phone"
+        content.body = "\(name) — use Send to Mac to fetch it"
+        content.categoryIdentifier = Self.screenshotCategory
+        content.userInfo = ["mediaId": mediaId]
+        let request = UNNotificationRequest(
+            identifier: "screenshot-\(mediaId)",
+            content: content,
+            trigger: nil
+        )
+        center.add(request) { error in
+            if let error {
+                NSLog("opentomac notifications: screenshot offer failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     func present(title: String, body: String, key: String, replyIndex: Int) {
@@ -73,6 +110,14 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        if response.actionIdentifier == Self.screenshotSendAction {
+            let mediaId = response.notification.request.content.userInfo["mediaId"] as? String ?? ""
+            if !mediaId.isEmpty {
+                Task { @MainActor in self.onScreenshotSend?(mediaId) }
+            }
+            completionHandler()
+            return
+        }
         if let textResponse = response as? UNTextInputNotificationResponse {
             let info = response.notification.request.content.userInfo
             let key = info["key"] as? String ?? ""

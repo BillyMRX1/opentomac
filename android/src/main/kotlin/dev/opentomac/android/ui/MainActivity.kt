@@ -174,7 +174,7 @@ private fun DashboardScreen(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            "Auto-send screenshots to Mac",
+            "Offer new screenshots to Mac",
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
         )

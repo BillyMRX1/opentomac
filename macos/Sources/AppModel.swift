@@ -23,7 +23,6 @@ final class AppModel: ObservableObject {
     @Published var contacts: [MacContact] = []
     @Published var contactsGranted = true
     @Published var notificationsAuthorized: Bool?
-    @Published var urlNotice: String?
     @Published var nowPlaying = NowPlayingState(
         appName: "",
         title: "",
@@ -77,11 +76,22 @@ final class AppModel: ObservableObject {
                         hasSession: hasSession.boolValue
                     )
                 }
+            },
+            onScreenshotTaken: { [weak self] mediaId, name in
+                Task { @MainActor in
+                    self?.notifier.presentScreenshot(name: name, mediaId: mediaId)
+                }
             }
         )
-        notifier.start { [weak self] key, actionIndex, text in
-            self?.controller.replyToNotification(key: key, actionIndex: Int32(actionIndex), text: text)
-        }
+        notifier.start(
+            onReply: { [weak self] key, actionIndex, text in
+                self?.controller.replyToNotification(key: key, actionIndex: Int32(actionIndex), text: text)
+            },
+            onScreenshotSend: { [weak self] mediaId in
+                // Reuses the photo-import path: the original arrives as a transfer.
+                self?.controller.importPhoto(id: mediaId)
+            }
+        )
         controller.start()
         refreshNotificationPermission()
     }
@@ -128,22 +138,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func openCopiedLinkOnPhone() {
-        guard connectionStatus.hasPrefix("Connected to") else {
-            showURLNotice("Phone is not connected")
-            return
-        }
-        guard
-            let value = NSPasteboard.general.string(forType: .string),
-            let url = Self.webURL(from: value)
-        else {
-            showURLNotice("Clipboard does not contain an http/https link")
-            return
-        }
-        controller.openUrlOnPhone(url: url.absoluteString)
-        showURLNotice("Link sent to phone")
-    }
-
     func mediaControl(_ command: String) { controller.mediaControl(command: command) }
 
     func cancelTransfer(_ id: String) { controller.cancelTransfer(jobId: id) }
@@ -160,13 +154,6 @@ final class AppModel: ObservableObject {
     func forget(_ device: TrustedDevice) { controller.forget(deviceId: device.deviceId) }
     func sendFiles(_ paths: [String]) { controller.sendFiles(paths: paths) }
     func diagnostics() -> String { controller.diagnostics() }
-
-    private func showURLNotice(_ message: String) {
-        urlNotice = message
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
-            if self?.urlNotice == message { self?.urlNotice = nil }
-        }
-    }
 
     private static func webURL(from value: String) -> URL? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -314,6 +314,14 @@ data class MediaFetchRequest(
     @ProtoNumber(1) val mediaId: String,
 ) : Message
 
+/** Announces a fresh phone screenshot; the peer decides whether to fetch it. */
+@Serializable
+@SerialName("screenshot_taken")
+data class ScreenshotTaken(
+    @ProtoNumber(1) val mediaId: String,
+    @ProtoNumber(2) val name: String,
+) : Message
+
 @Serializable
 data class MediaItem(
     @ProtoNumber(1) val mediaId: String,

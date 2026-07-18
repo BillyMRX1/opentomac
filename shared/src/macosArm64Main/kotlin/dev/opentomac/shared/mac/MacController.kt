@@ -23,6 +23,7 @@ import dev.opentomac.shared.protocol.Message
 import dev.opentomac.shared.protocol.NotificationPosted
 import dev.opentomac.shared.protocol.OpenUrl
 import dev.opentomac.shared.protocol.RevokeDevice
+import dev.opentomac.shared.protocol.ScreenshotTaken
 import dev.opentomac.shared.session.ConnectionState
 import dev.opentomac.shared.session.SessionLog
 import dev.opentomac.shared.session.SessionManager
@@ -92,6 +93,7 @@ class MacController(
     private val onPhotos: (List<MacPhoto>) -> Unit,
     private val onOpenUrl: (String) -> Unit,
     private val onNowPlaying: (String, String, String, Boolean, Boolean) -> Unit,
+    private val onScreenshotTaken: (String, String) -> Unit,
 ) {
     private val collectedJobs = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -174,6 +176,7 @@ class MacController(
                         message.hasSession,
                     )
                     is OpenUrl -> normalizedWebUrl(message.url)?.let(onOpenUrl)
+                    is ScreenshotTaken -> onScreenshotTaken(message.mediaId, message.name)
                     else -> {
                         println("opentomac EVENT: ${message::class.simpleName}")
                         notifications.onMessage(message)

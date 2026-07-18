@@ -13,8 +13,6 @@ struct DashboardView: View {
             HStack {
                 Text("opentomac").font(.largeTitle.bold())
                 Spacer()
-                Button("Open copied link on phone") { model.openCopiedLinkOnPhone() }
-                    .controlSize(.small)
                 Button("Photos") { showPhotos = true }
                 Button("Contacts") { showContacts = true }
                 Button("Pair device") {
@@ -23,9 +21,6 @@ struct DashboardView: View {
                 }
             }
             Text(model.connectionStatus).foregroundStyle(.secondary)
-            if let notice = model.urlNotice {
-                Text(notice).font(.caption).foregroundStyle(.secondary)
-            }
 
             if model.nowPlaying.hasSession {
                 HStack(spacing: 12) {

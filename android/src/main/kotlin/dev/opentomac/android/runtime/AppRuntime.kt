@@ -50,6 +50,7 @@ import dev.opentomac.shared.protocol.NotificationDismissed
 import dev.opentomac.shared.protocol.NotificationPosted
 import dev.opentomac.shared.protocol.OpenUrl
 import dev.opentomac.shared.protocol.RevokeDevice
+import dev.opentomac.shared.protocol.ScreenshotTaken
 import dev.opentomac.shared.protocol.ThumbnailRequest
 import dev.opentomac.shared.session.ConnectionState
 import dev.opentomac.shared.session.SessionManager
@@ -615,38 +616,18 @@ object AppRuntime {
             return
         }
 
+        // Announce only: the Mac shows a notification whose Send action fetches the
+        // original through the existing media_fetch_request path. Not every
+        // screenshot deserves to leave the phone, so the user decides per shot.
         for (row in screenshots) {
             if (!mutableAutoSendScreenshots.value || connectionState.value !is ConnectionState.Connected) {
                 Log.w("opentomac", "skipping screenshot ID ${row.id}: not connected")
                 continue
             }
             val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, row.id)
-            val source = stageScreenshotWithRetry(context, uri)
-            if (source == null) {
-                Log.w("opentomac", "could not stage screenshot ID ${row.id}")
-                continue
-            }
-            if (!initialized || !mutableAutoSendScreenshots.value ||
-                connectionState.value !is ConnectionState.Connected
-            ) {
-                Log.w("opentomac", "skipping staged screenshot ID ${row.id}: sending disabled")
-                continue
-            }
-            runCatching { requireNotNull(transferEngine).offer(listOf(source)) }
-                .onSuccess { Log.w("opentomac", "offered screenshot ID ${row.id}: ${source.meta.name}") }
-                .onFailure { Log.w("opentomac", "could not offer screenshot ID ${row.id}", it) }
+            safeSend(ChannelId.EVENT, ScreenshotTaken(uri.toString(), row.name ?: "Screenshot"))
+            Log.w("opentomac", "announced screenshot ID ${row.id} to Mac")
         }
-    }
-
-    private suspend fun stageScreenshotWithRetry(context: Context, uri: Uri): SourceFile? {
-        repeat(3) { attempt ->
-            val source = withContext(Dispatchers.IO) {
-                runCatching { stageUri(context, uri) }.getOrNull()
-            }
-            if (source != null) return source
-            if (attempt < 2) delay(350)
-        }
-        return null
     }
 
     private fun queryCurrentMaxImageId(context: Context): Long {
@@ -668,6 +649,7 @@ object AppRuntime {
         val projection = buildList {
             add(idColumn)
             add(bucketColumn)
+            add(MediaStore.Images.Media.DISPLAY_NAME)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 add(MediaStore.Images.Media.RELATIVE_PATH)
             }
@@ -687,6 +669,7 @@ object AppRuntime {
         )?.use { cursor ->
             val idIndex = cursor.getColumnIndexOrThrow(idColumn)
             val bucketIndex = cursor.getColumnIndex(bucketColumn)
+            val nameIndex = cursor.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME)
             val pathIndex = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 cursor.getColumnIndex(MediaStore.Images.Media.RELATIVE_PATH)
             } else {
@@ -699,6 +682,7 @@ object AppRuntime {
                             id = cursor.getLong(idIndex),
                             bucket = bucketIndex.takeIf { it >= 0 }?.let(cursor::getString),
                             relativePath = pathIndex.takeIf { it >= 0 }?.let(cursor::getString),
+                            name = nameIndex.takeIf { it >= 0 }?.let(cursor::getString),
                         ),
                     )
                 }
@@ -768,6 +752,7 @@ object AppRuntime {
         val id: Long,
         val bucket: String?,
         val relativePath: String?,
+        val name: String?,
     ) {
         val isScreenshot: Boolean
             get() = bucket?.contains("Screenshots", ignoreCase = true) == true ||

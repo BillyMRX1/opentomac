@@ -175,6 +175,15 @@ class MessagesTest {
     }
 
     @Test
+    fun screenshotTakenRoundTrip() {
+        val msg = ScreenshotTaken(
+            mediaId = "content://media/external/images/media/77",
+            name = "Screenshot_20260718.jpg",
+        )
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+    }
+
+    @Test
     fun mediaListRequestRoundTrip() {
         val msg = MediaListRequest(bucket = "Camera", page = 3, pageSize = 50)
         assertEquals(msg, roundTrip(msg))
