@@ -108,6 +108,12 @@ class MessagesTest {
     }
 
     @Test
+    fun openUrlRoundTrip() {
+        val msg = OpenUrl(url = "https://example.com/path?q=opentomac")
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+    }
+
+    @Test
     fun fileOfferRoundTrip() {
         val msg = FileOffer(
             jobId = "job-1",

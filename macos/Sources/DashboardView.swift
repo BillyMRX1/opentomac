@@ -12,6 +12,8 @@ struct DashboardView: View {
             HStack {
                 Text("opentomac").font(.largeTitle.bold())
                 Spacer()
+                Button("Open copied link on phone") { model.openCopiedLinkOnPhone() }
+                    .controlSize(.small)
                 Button("Photos") { showPhotos = true }
                 Button("Pair device") {
                     model.startHosting()
@@ -19,6 +21,9 @@ struct DashboardView: View {
                 }
             }
             Text(model.connectionStatus).foregroundStyle(.secondary)
+            if let notice = model.urlNotice {
+                Text(notice).font(.caption).foregroundStyle(.secondary)
+            }
 
             HStack(spacing: 8) {
                 Image(systemName: model.notificationsAuthorized == false ? "bell.slash" : "bell")

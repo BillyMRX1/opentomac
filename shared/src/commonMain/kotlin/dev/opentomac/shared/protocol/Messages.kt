@@ -196,6 +196,14 @@ data class ClipboardItemMsg(
     }
 }
 
+// --- URL handoff ---
+
+@Serializable
+@SerialName("open_url")
+data class OpenUrl(
+    @ProtoNumber(1) val url: String,
+) : Message
+
 // --- File transfer ---
 
 @Serializable

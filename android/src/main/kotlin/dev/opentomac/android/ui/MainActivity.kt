@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -119,6 +120,9 @@ private fun OpentomacApp() {
                         onConnect = { device -> scope.launch { AppRuntime.connect(device) } },
                         onForget = { device -> scope.launch { AppRuntime.forget(device) } },
                         onSendFiles = { uris -> scope.launch { AppRuntime.enqueueSharedUris(context, uris) } },
+                        onAutoSendScreenshotsChanged = { enabled ->
+                            scope.launch { AppRuntime.setAutoSendScreenshots(enabled) }
+                        },
                     )
                     Screen.PAIR -> PairScreen(onDone = { screen = Screen.DASHBOARD })
                 }
@@ -134,10 +138,13 @@ private fun DashboardScreen(
     onConnect: (TrustedDevice) -> Unit,
     onForget: (TrustedDevice) -> Unit,
     onSendFiles: (List<Uri>) -> Unit,
+    onAutoSendScreenshotsChanged: (Boolean) -> Unit,
 ) {
     val state by AppRuntime.connectionState.collectAsStateWithLifecycle()
     val devices by AppRuntime.pairedDevices.collectAsStateWithLifecycle()
     val transfers by AppRuntime.transfers.collectAsStateWithLifecycle()
+    val autoSendScreenshots by AppRuntime.autoSendScreenshots.collectAsStateWithLifecycle()
+    val ready by AppRuntime.ready.collectAsStateWithLifecycle()
 
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -160,6 +167,22 @@ private fun DashboardScreen(
 
     Spacer(Modifier.height(8.dp))
     NotificationAccessRow()
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            "Auto-send screenshots to Mac",
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Switch(
+            checked = autoSendScreenshots,
+            onCheckedChange = onAutoSendScreenshotsChanged,
+            enabled = ready,
+        )
+    }
 
     if (transfers.isNotEmpty()) {
         Spacer(Modifier.height(16.dp))

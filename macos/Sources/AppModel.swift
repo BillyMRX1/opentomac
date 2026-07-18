@@ -13,6 +13,7 @@ final class AppModel: ObservableObject {
     @Published var transfers: [MacTransfer] = []
     @Published var photos: [MacPhoto] = []
     @Published var notificationsAuthorized: Bool?
+    @Published var urlNotice: String?
     let protocolVersion: Int32
 
     private var controller: MacController!
@@ -41,6 +42,12 @@ final class AppModel: ObservableObject {
             },
             onPhotos: { [weak self] items in
                 Task { @MainActor in self?.photos = items }
+            },
+            onOpenUrl: { value in
+                Task { @MainActor in
+                    guard let url = Self.webURL(from: value) else { return }
+                    NSWorkspace.shared.open(url)
+                }
             }
         )
         notifier.start { [weak self] key, actionIndex, text in
@@ -83,6 +90,22 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func openCopiedLinkOnPhone() {
+        guard connectionStatus.hasPrefix("Connected to") else {
+            showURLNotice("Phone is not connected")
+            return
+        }
+        guard
+            let value = NSPasteboard.general.string(forType: .string),
+            let url = Self.webURL(from: value)
+        else {
+            showURLNotice("Clipboard does not contain an http/https link")
+            return
+        }
+        controller.openUrlOnPhone(url: url.absoluteString)
+        showURLNotice("Link sent to phone")
+    }
+
     func cancelTransfer(_ id: String) { controller.cancelTransfer(jobId: id) }
 
     func revealReceived() {
@@ -97,4 +120,24 @@ final class AppModel: ObservableObject {
     func forget(_ device: TrustedDevice) { controller.forget(deviceId: device.deviceId) }
     func sendFiles(_ paths: [String]) { controller.sendFiles(paths: paths) }
     func diagnostics() -> String { controller.diagnostics() }
+
+    private func showURLNotice(_ message: String) {
+        urlNotice = message
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            if self?.urlNotice == message { self?.urlNotice = nil }
+        }
+    }
+
+    private static func webURL(from value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            !trimmed.isEmpty,
+            !trimmed.contains(where: \.isWhitespace),
+            let url = URL(string: trimmed),
+            let scheme = url.scheme?.lowercased(),
+            scheme == "http" || scheme == "https",
+            url.host?.isEmpty == false
+        else { return nil }
+        return url
+    }
 }

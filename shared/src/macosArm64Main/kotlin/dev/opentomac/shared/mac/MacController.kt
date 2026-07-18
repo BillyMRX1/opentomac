@@ -18,6 +18,7 @@ import dev.opentomac.shared.protocol.FileMeta
 import dev.opentomac.shared.protocol.MediaFetchRequest
 import dev.opentomac.shared.protocol.Message
 import dev.opentomac.shared.protocol.NotificationPosted
+import dev.opentomac.shared.protocol.OpenUrl
 import dev.opentomac.shared.protocol.RevokeDevice
 import dev.opentomac.shared.session.ConnectionState
 import dev.opentomac.shared.session.SessionLog
@@ -79,6 +80,7 @@ class MacController(
     private val onNotification: (String, String, String, Int) -> Unit,
     private val onTransfers: (List<MacTransfer>) -> Unit,
     private val onPhotos: (List<MacPhoto>) -> Unit,
+    private val onOpenUrl: (String) -> Unit,
 ) {
     private val collectedJobs = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -151,6 +153,7 @@ class MacController(
             sessionManager.registerHandler(ChannelId.EVENT) { envelope ->
                 when (val message = envelope.payload) {
                     is ClipboardItemMsg -> clipboardSync.onRemoteItem(message)
+                    is OpenUrl -> normalizedWebUrl(message.url)?.let(onOpenUrl)
                     else -> {
                         println("opentomac EVENT: ${message::class.simpleName}")
                         notifications.onMessage(message)
@@ -333,6 +336,12 @@ class MacController(
         }
     }
 
+    /** Opens an http/https URL on the connected Android phone. */
+    fun openUrlOnPhone(url: String) {
+        val normalized = normalizedWebUrl(url) ?: return
+        scope.launch { safeSend(ChannelId.EVENT, OpenUrl(normalized)) }
+    }
+
     /** Sends an inline reply back to a mirrored phone notification. */
     fun replyToNotification(key: String, actionIndex: Int, text: String) {
         scope.launch { notifications.sendAction(key, actionIndex, text) }
@@ -387,6 +396,22 @@ class MacController(
     private suspend fun safeSend(channel: ChannelId, message: Message) {
         if (sessionManager.state.value !is ConnectionState.Connected) return
         runCatching { sessionManager.send(channel, message) }
+    }
+
+    private fun normalizedWebUrl(value: String): String? {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty() || trimmed.any { it.isWhitespace() }) return null
+        val delimiter = trimmed.indexOf("://")
+        if (delimiter <= 0) return null
+        val scheme = trimmed.substring(0, delimiter)
+        if (!scheme.equals("http", ignoreCase = true) && !scheme.equals("https", ignoreCase = true)) {
+            return null
+        }
+        val authority = trimmed.substring(delimiter + 3)
+            .substringBefore('/')
+            .substringBefore('?')
+            .substringBefore('#')
+        return trimmed.takeIf { authority.isNotBlank() }
     }
 
     private fun receiveDirectory() =

@@ -1,14 +1,24 @@
 package dev.opentomac.android.runtime
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
+import android.database.ContentObserver
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
+import dev.opentomac.android.R
 import dev.opentomac.android.platform.AndroidClipboard
 import dev.opentomac.android.platform.AndroidKeyValueStore
 import dev.opentomac.android.platform.AndroidMediaSource
@@ -34,6 +44,7 @@ import dev.opentomac.shared.protocol.MediaItem
 import dev.opentomac.shared.protocol.NotificationAction
 import dev.opentomac.shared.protocol.NotificationDismissed
 import dev.opentomac.shared.protocol.NotificationPosted
+import dev.opentomac.shared.protocol.OpenUrl
 import dev.opentomac.shared.protocol.RevokeDevice
 import dev.opentomac.shared.protocol.ThumbnailRequest
 import dev.opentomac.shared.session.ConnectionState
@@ -50,6 +61,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,9 +81,13 @@ object AppRuntime {
     private const val PUBLIC_KEY = "identity/public"
     private const val SECRET_KEY = "identity/secret"
     private const val ENDPOINT_PREFIX = "endpoint/"
+    private const val AUTO_SEND_SCREENSHOTS_KEY = "settings.autoSendScreenshots"
+    private const val LINKS_CHANNEL_ID = "opentomac_links"
+    private const val SCREENSHOT_DEBOUNCE_MS = 650L
 
     private val initMutex = Mutex()
     private var initialized = false
+    private var appContext: Context? = null
     private var scope: CoroutineScope? = null
     private var kv: AndroidKeyValueStore? = null
     private var trustStore: PersistentTrustStore? = null
@@ -88,6 +104,10 @@ object AppRuntime {
     private var pendingEndpoint: Endpoint? = null
     private var hostServer: TcpServer? = null
     private val queuedOffers = mutableListOf<List<SourceFile>>()
+    private val screenshotScanMutex = Mutex()
+    private var screenshotObserver: ContentObserver? = null
+    private var screenshotDebounceJob: Job? = null
+    private var lastSeenImageId = 0L
 
     private val mutableConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Unpaired)
     val connectionState: StateFlow<ConnectionState> = mutableConnectionState.asStateFlow()
@@ -104,6 +124,9 @@ object AppRuntime {
     private val mutableReady = MutableStateFlow(false)
     val ready: StateFlow<Boolean> = mutableReady.asStateFlow()
 
+    private val mutableAutoSendScreenshots = MutableStateFlow(false)
+    val autoSendScreenshots: StateFlow<Boolean> = mutableAutoSendScreenshots.asStateFlow()
+
     private val mutableMediaItems = MutableStateFlow<List<MediaItem>>(emptyList())
     val mediaItems: StateFlow<List<MediaItem>> = mutableMediaItems.asStateFlow()
 
@@ -119,8 +142,13 @@ object AppRuntime {
         initMutex.withLock {
             if (initialized) return
             val appContext = context.applicationContext
+            this.appContext = appContext
             scope = ownerScope
             val store = AndroidKeyValueStore(appContext).also { kv = it }
+            mutableAutoSendScreenshots.value = store.get(AUTO_SEND_SCREENSHOTS_KEY)
+                ?.decodeToString()
+                ?.toBooleanStrictOrNull()
+                ?: false
             val identity = loadIdentity(store)
             val trusted = PersistentTrustStore(store).also { trustStore = it }
             val pairing = PairingManager(identity, trusted).also { pairingManager = it }
@@ -150,6 +178,17 @@ object AppRuntime {
                 historyLimit = 20,
             ).also { clipboardSync = it }
             receiveDir = receiveDirectory(appContext)
+            // Staged outbox copies have no delivery-tied lifecycle (documented limit);
+            // day-old orphans are dead weight and auto-send would otherwise grow the
+            // cache without bound. Anything mid-transfer is far younger than a day.
+            ownerScope.launch(Dispatchers.IO) {
+                runCatching {
+                    val cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+                    File(appContext.cacheDir, "outbox").listFiles()
+                        ?.filter { it.lastModified() < cutoff }
+                        ?.forEach { it.delete() }
+                }
+            }
             val transfer = TransferEngine(
                 destinationDir = receiveDirectory(appContext).absolutePath.toPath(),
                 destinationFileSystem = FileSystem.SYSTEM,
@@ -200,6 +239,7 @@ object AppRuntime {
             session.registerHandler(ChannelId.EVENT) { envelope ->
                 when (val message = envelope.payload) {
                     is ClipboardItemMsg -> sync.onRemoteItem(message)
+                    is OpenUrl -> handleOpenUrlFromPeer(appContext, message.url)
                     else -> notifications.onMessage(message)
                 }
             }
@@ -239,6 +279,7 @@ object AppRuntime {
                 }
             }
             initialized = true
+            if (mutableAutoSendScreenshots.value) startScreenshotObserver(appContext)
             mutableReady.value = true
             // Connect to the paired Mac without waiting for a dashboard tap, so entry
             // points that never show the UI (tile, share sheet, text selection,
@@ -393,6 +434,49 @@ object AppRuntime {
         return dispatchClipboardItem(item, "Text sent")
     }
 
+    suspend fun openUrlOnPeer(url: String): Boolean {
+        val normalized = webUriOrNull(url)?.toString()
+        if (normalized == null) {
+            mutableNotice.value = "No valid web link to send"
+            return false
+        }
+        val sent = runCatching {
+            val session = requireNotNull(sessionManager)
+            check(session.state.value is ConnectionState.Connected) { "Not connected" }
+            Log.w("opentomac", "URL -> Mac")
+            session.send(ChannelId.EVENT, OpenUrl(normalized))
+        }.isSuccess
+        mutableNotice.value = when {
+            sent -> "Link sent"
+            connectionState.value !is ConnectionState.Connected -> "Not connected to a device"
+            else -> "Could not send link"
+        }
+        return sent
+    }
+
+    fun isHttpUrl(value: String): Boolean = webUriOrNull(value) != null
+
+    suspend fun setAutoSendScreenshots(enabled: Boolean) {
+        runCatching {
+            requireNotNull(kv).put(AUTO_SEND_SCREENSHOTS_KEY, enabled.toString().encodeToByteArray())
+            mutableAutoSendScreenshots.value = enabled
+            if (enabled) {
+                // The switch must not claim to be on when nothing is watching.
+                if (!startScreenshotObserver(requireNotNull(appContext))) {
+                    mutableAutoSendScreenshots.value = false
+                    requireNotNull(kv).put(AUTO_SEND_SCREENSHOTS_KEY, "false".encodeToByteArray())
+                    mutableNotice.value = "Could not watch screenshots. Check photo permission."
+                    return
+                }
+            } else {
+                stopScreenshotObserver()
+            }
+            Log.w("opentomac", "auto-send screenshots ${if (enabled) "enabled" else "disabled"}")
+        }.onFailure {
+            mutableNotice.value = "Could not update screenshot setting: ${it.userMessage()}"
+        }
+    }
+
     private suspend fun dispatchClipboardItem(
         item: dev.opentomac.shared.clipboard.ClipItem,
         successNotice: String,
@@ -435,12 +519,239 @@ object AppRuntime {
     }
 
     fun shutdown() {
+        initialized = false
+        stopScreenshotObserver()
         clipboardSync?.stop()
         notificationAgent?.stop()
         hostServer?.close()
         scope?.cancel()
         mutableReady.value = false
-        initialized = false
+    }
+
+    private suspend fun startScreenshotObserver(context: Context): Boolean {
+        if (!initialized || !mutableAutoSendScreenshots.value) return false
+        if (screenshotObserver != null) return true
+        val currentMax = runCatching {
+            withContext(Dispatchers.IO) { queryCurrentMaxImageId(context) }
+        }.onFailure {
+            Log.w("opentomac", "could not initialize screenshot observer", it)
+        }.getOrNull() ?: return false
+        if (!initialized || !mutableAutoSendScreenshots.value) return false
+        if (screenshotObserver != null) return true
+
+        lastSeenImageId = currentMax
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                screenshotDebounceJob?.cancel()
+                screenshotDebounceJob = scope?.launch {
+                    delay(SCREENSHOT_DEBOUNCE_MS)
+                    // Clear the debounce handle before scanning so a later observer
+                    // callback schedules another scan without cancelling one already
+                    // staging an image.
+                    screenshotDebounceJob = null
+                    screenshotScanMutex.withLock { scanForNewScreenshots(context) }
+                }
+            }
+        }
+        runCatching {
+            context.contentResolver.registerContentObserver(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                true,
+                observer,
+            )
+            screenshotObserver = observer
+            Log.w("opentomac", "screenshot observer started at image ID $lastSeenImageId")
+        }.onFailure {
+            Log.w("opentomac", "could not register screenshot observer", it)
+        }
+        return screenshotObserver === observer
+    }
+
+    private fun stopScreenshotObserver() {
+        screenshotDebounceJob?.cancel()
+        screenshotDebounceJob = null
+        val observer = screenshotObserver ?: return
+        screenshotObserver = null
+        runCatching { appContext?.contentResolver?.unregisterContentObserver(observer) }
+            .onFailure { Log.w("opentomac", "could not unregister screenshot observer", it) }
+        Log.w("opentomac", "screenshot observer stopped")
+    }
+
+    private suspend fun scanForNewScreenshots(context: Context) {
+        if (!mutableAutoSendScreenshots.value) return
+        val afterId = lastSeenImageId
+        val rows = runCatching {
+            withContext(Dispatchers.IO) { queryNewImages(context, afterId) }
+        }.onFailure {
+            Log.w("opentomac", "could not query new screenshots", it)
+        }.getOrNull() ?: return
+        if (rows.isEmpty()) return
+
+        lastSeenImageId = maxOf(lastSeenImageId, rows.maxOf { it.id })
+        val screenshots = rows.filter { it.isScreenshot }
+        if (screenshots.isEmpty()) return
+        if (connectionState.value !is ConnectionState.Connected) {
+            Log.w("opentomac", "skipping ${screenshots.size} screenshot(s): not connected")
+            return
+        }
+
+        for (row in screenshots) {
+            if (!mutableAutoSendScreenshots.value || connectionState.value !is ConnectionState.Connected) {
+                Log.w("opentomac", "skipping screenshot ID ${row.id}: not connected")
+                continue
+            }
+            val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, row.id)
+            val source = stageScreenshotWithRetry(context, uri)
+            if (source == null) {
+                Log.w("opentomac", "could not stage screenshot ID ${row.id}")
+                continue
+            }
+            if (!initialized || !mutableAutoSendScreenshots.value ||
+                connectionState.value !is ConnectionState.Connected
+            ) {
+                Log.w("opentomac", "skipping staged screenshot ID ${row.id}: sending disabled")
+                continue
+            }
+            runCatching { requireNotNull(transferEngine).offer(listOf(source)) }
+                .onSuccess { Log.w("opentomac", "offered screenshot ID ${row.id}: ${source.meta.name}") }
+                .onFailure { Log.w("opentomac", "could not offer screenshot ID ${row.id}", it) }
+        }
+    }
+
+    private suspend fun stageScreenshotWithRetry(context: Context, uri: Uri): SourceFile? {
+        repeat(3) { attempt ->
+            val source = withContext(Dispatchers.IO) {
+                runCatching { stageUri(context, uri) }.getOrNull()
+            }
+            if (source != null) return source
+            if (attempt < 2) delay(350)
+        }
+        return null
+    }
+
+    private fun queryCurrentMaxImageId(context: Context): Long {
+        val resolver = context.contentResolver
+        return resolver.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.Images.Media._ID),
+            null,
+            null,
+            "${MediaStore.Images.Media._ID} DESC",
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getLong(0) else 0L
+        } ?: 0L
+    }
+
+    private fun queryNewImages(context: Context, afterId: Long): List<MediaStoreImage> {
+        val idColumn = MediaStore.Images.Media._ID
+        val bucketColumn = MediaStore.Images.Media.BUCKET_DISPLAY_NAME
+        val projection = buildList {
+            add(idColumn)
+            add(bucketColumn)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add(MediaStore.Images.Media.RELATIVE_PATH)
+            }
+        }.toTypedArray()
+        val selection = buildString {
+            append("$idColumn > ?")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                append(" AND ${MediaStore.Images.Media.IS_PENDING} = 0")
+            }
+        }
+        return context.contentResolver.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            arrayOf(afterId.toString()),
+            "$idColumn ASC",
+        )?.use { cursor ->
+            val idIndex = cursor.getColumnIndexOrThrow(idColumn)
+            val bucketIndex = cursor.getColumnIndex(bucketColumn)
+            val pathIndex = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                cursor.getColumnIndex(MediaStore.Images.Media.RELATIVE_PATH)
+            } else {
+                -1
+            }
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        MediaStoreImage(
+                            id = cursor.getLong(idIndex),
+                            bucket = bucketIndex.takeIf { it >= 0 }?.let(cursor::getString),
+                            relativePath = pathIndex.takeIf { it >= 0 }?.let(cursor::getString),
+                        ),
+                    )
+                }
+            }
+        }.orEmpty()
+    }
+
+    private fun handleOpenUrlFromPeer(context: Context, value: String) {
+        val uri = webUriOrNull(value)
+        if (uri == null) {
+            Log.w("opentomac", "refused invalid URL from peer")
+            return
+        }
+        val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val foreground = ProcessLifecycleOwner.get().lifecycle.currentState
+            .isAtLeast(Lifecycle.State.STARTED)
+        if (foreground && runCatching { context.startActivity(intent) }.isSuccess) {
+            Log.w("opentomac", "opened URL from Mac: host=${uri.host}")
+            return
+        }
+        postOpenUrlNotification(context, uri, intent)
+    }
+
+    private fun postOpenUrlNotification(context: Context, uri: Uri, intent: Intent) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                LINKS_CHANNEL_ID,
+                "Links from Mac",
+                NotificationManager.IMPORTANCE_HIGH,
+            ),
+        )
+        val requestCode = uri.toString().hashCode()
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = NotificationCompat.Builder(context, LINKS_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_tile_clipboard)
+            .setContentTitle("Open link from Mac")
+            .setContentText(uri.host ?: uri.toString())
+            .setStyle(NotificationCompat.BigTextStyle().bigText(uri.toString()))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        runCatching { manager.notify(requestCode, notification) }
+            .onSuccess { Log.w("opentomac", "posted URL notification from Mac: host=${uri.host}") }
+            .onFailure { Log.w("opentomac", "could not post URL notification", it) }
+    }
+
+    private fun webUriOrNull(value: String): Uri? {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty() || trimmed.any(Char::isWhitespace)) return null
+        val uri = runCatching { Uri.parse(trimmed) }.getOrNull() ?: return null
+        val scheme = uri.scheme ?: return null
+        if (!scheme.equals("http", ignoreCase = true) && !scheme.equals("https", ignoreCase = true)) {
+            return null
+        }
+        return uri.takeIf { !it.host.isNullOrBlank() }
+    }
+
+    private data class MediaStoreImage(
+        val id: Long,
+        val bucket: String?,
+        val relativePath: String?,
+    ) {
+        val isScreenshot: Boolean
+            get() = bucket?.contains("Screenshots", ignoreCase = true) == true ||
+                relativePath?.contains("Screenshots", ignoreCase = true) == true
     }
 
     private suspend fun loadIdentity(store: AndroidKeyValueStore): Identity {
@@ -497,9 +808,14 @@ object AppRuntime {
         val safeName = displayName.replace(Regex("[^A-Za-z0-9._ -]"), "_").take(120)
         val stagingDir = File(context.cacheDir, "outbox").apply { mkdirs() }
         val target = uniqueFile(stagingDir, safeName)
-        resolver.openInputStream(uri)?.use { input ->
-            target.outputStream().use(input::copyTo)
-        } ?: return null
+        try {
+            resolver.openInputStream(uri)?.use { input ->
+                target.outputStream().use(input::copyTo)
+            } ?: return null
+        } catch (cause: Throwable) {
+            target.delete()
+            throw cause
+        }
         val mime = resolver.getType(uri) ?: "application/octet-stream"
         return SourceFile(
             path = target.absolutePath.toPath(),
