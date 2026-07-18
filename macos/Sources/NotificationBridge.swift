@@ -44,6 +44,8 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
         center.add(request) { error in
             if let error {
                 NSLog("opentomac notifications: banner failed for \(key): \(error.localizedDescription)")
+            } else {
+                NSLog("opentomac notifications: banner accepted for \(key)")
             }
         }
     }

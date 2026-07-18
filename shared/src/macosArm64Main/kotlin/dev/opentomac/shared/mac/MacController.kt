@@ -20,6 +20,7 @@ import dev.opentomac.shared.protocol.Message
 import dev.opentomac.shared.protocol.NotificationPosted
 import dev.opentomac.shared.protocol.RevokeDevice
 import dev.opentomac.shared.session.ConnectionState
+import dev.opentomac.shared.session.SessionLog
 import dev.opentomac.shared.session.SessionManager
 import dev.opentomac.shared.session.TransportFactory
 import dev.opentomac.shared.transfer.OfferDecision
@@ -102,6 +103,9 @@ class MacController(
     private var hostingActive = false
 
     fun start() {
+        // Session-level diagnostics (dropped envelopes, handler exceptions) were
+        // silently discarded before this sink existed; stdout shows in terminal runs.
+        SessionLog.sink = { println("opentomac session: $it") }
         scope.launch {
             val kv = MacKeyValueStore.default()
             identity = loadIdentity(kv)
@@ -147,7 +151,10 @@ class MacController(
             sessionManager.registerHandler(ChannelId.EVENT) { envelope ->
                 when (val message = envelope.payload) {
                     is ClipboardItemMsg -> clipboardSync.onRemoteItem(message)
-                    else -> notifications.onMessage(message)
+                    else -> {
+                        println("opentomac EVENT: ${message::class.simpleName}")
+                        notifications.onMessage(message)
+                    }
                 }
             }
             sessionManager.registerHandler(ChannelId.CONTROL) { envelope ->
