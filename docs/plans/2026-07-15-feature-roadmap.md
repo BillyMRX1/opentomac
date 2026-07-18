@@ -60,7 +60,11 @@ Also added in this phase: transfer cancel buttons on both apps (wired the existi
 
 ## Phase C: screen mirroring and remote control (MIR-001..007, F06/F07)
 
-C1 view-only mirroring DONE 2026-07-18 (pending device test): VIDEO channel; mirror_request/mirror_stop/video_config/video_frame; Android mediaProjection foreground service with consent flow (dashboard button or Mac-initiated request), H.264 surface encoder (1280 long edge, 6 Mbps, 30 fps, 2 s keyframes, drop-oldest queue); Mac viewer sheet on AVSampleBufferDisplayLayer (Annex-B to AVCC, keyframe gating, disconnect teardown). Accepted MVP limits: fire-and-forget start/stop, flush-only layer recovery, no rotation-change handling verified yet. C2 (remote control input injection) not started.
+Phase C DONE 2026-07-18 (pending device test):
+- C1 view-only mirroring: VIDEO channel; mirror_request/mirror_stop/video_config/video_frame; Android mediaProjection foreground service with consent flow, H.264 surface encoder; Mac viewer on AVSampleBufferDisplayLayer (Annex-B to AVCC, keyframe gating, disconnect teardown).
+- Viewer overhaul: dedicated resizable Window scene (not a sheet) with native fullscreen and video-locked aspect ratio (no letterboxing), end-to-end rotation handling (encoder restarts on capture-size change and re-emits video_config), and Low/Balanced/Sharp quality presets (854/2, 1280/6, 1920/10) in the window toolbar, persisted in UserDefaults.
+- C2 remote control: input_tap/input_swipe/input_key/input_text on EVENT; Android OpentomacControlService (accessibility) dispatches gestures, Back/Home/Recents, and caret/selection-aware Unicode-safe text edits; Mac window maps clicks/drags/scroll/keys to input against the aspect-fit rect plus navigation toolbar. Injection gated on an active-mirror generation (revalidated in the service handler, pending work dropped on stop); full-display capture forced on Android 14+; scroll gestures serialized through completion callbacks.
+Accepted MVP limits: fire-and-forget mirror start/stop, flush-only decode-layer recovery.
 
 The first marquee feature and a large one.
 - Android: `MediaProjection` capture (explicit system consent), hardware H.264/HEVC encode, and an `AccessibilityService` for injecting taps, scrolls, Back and Home (prominent-disclosure policy required).
