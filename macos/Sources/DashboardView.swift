@@ -6,6 +6,7 @@ struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showPairing = false
     @State private var showPhotos = false
+    @State private var showContacts = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -15,6 +16,7 @@ struct DashboardView: View {
                 Button("Open copied link on phone") { model.openCopiedLinkOnPhone() }
                     .controlSize(.small)
                 Button("Photos") { showPhotos = true }
+                Button("Contacts") { showContacts = true }
                 Button("Pair device") {
                     model.startHosting()
                     showPairing = true
@@ -147,6 +149,10 @@ struct DashboardView: View {
         }
         .sheet(isPresented: $showPhotos) {
             PhotosView(isPresented: $showPhotos)
+                .environmentObject(model)
+        }
+        .sheet(isPresented: $showContacts) {
+            ContactsView(isPresented: $showContacts)
                 .environmentObject(model)
         }
     }

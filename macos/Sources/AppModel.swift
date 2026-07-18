@@ -20,6 +20,8 @@ final class AppModel: ObservableObject {
     @Published var lastNotification: String?
     @Published var transfers: [MacTransfer] = []
     @Published var photos: [MacPhoto] = []
+    @Published var contacts: [MacContact] = []
+    @Published var contactsGranted = true
     @Published var notificationsAuthorized: Bool?
     @Published var urlNotice: String?
     @Published var nowPlaying = NowPlayingState(
@@ -104,6 +106,15 @@ final class AppModel: ObservableObject {
         controller.requestThumbnail(id: id) { base64 in
             let data = base64.flatMap { Data(base64Encoded: $0) }
             Task { @MainActor in completion(data) }
+        }
+    }
+
+    func searchContacts(_ query: String) {
+        controller.searchContacts(query: query) { [weak self] items, granted in
+            Task { @MainActor in
+                self?.contacts = items
+                self?.contactsGranted = granted.boolValue
+            }
         }
     }
 

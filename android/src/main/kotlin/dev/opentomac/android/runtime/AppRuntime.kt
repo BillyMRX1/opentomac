@@ -20,11 +20,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import dev.opentomac.android.R
 import dev.opentomac.android.platform.AndroidClipboard
+import dev.opentomac.android.platform.AndroidContactsSource
 import dev.opentomac.android.platform.AndroidKeyValueStore
 import dev.opentomac.android.platform.AndroidMediaSource
 import dev.opentomac.android.platform.AndroidNotificationSource
 import dev.opentomac.android.platform.MediaRemoteAgent
 import dev.opentomac.shared.clipboard.ClipboardSync
+import dev.opentomac.shared.contacts.ContactsAgent
 import dev.opentomac.shared.crypto.Identity
 import dev.opentomac.shared.media.MediaAgent
 import dev.opentomac.shared.media.MediaSource
@@ -99,6 +101,7 @@ object AppRuntime {
     private var clipboardSync: ClipboardSync? = null
     private var transferEngine: TransferEngine? = null
     private var notificationAgent: NotificationAgent? = null
+    private var contactsAgent: ContactsAgent? = null
     private var mediaAgent: MediaAgent? = null
     private var mediaRemoteAgent: MediaRemoteAgent? = null
     private var mediaSource: MediaSource? = null
@@ -213,6 +216,10 @@ object AppRuntime {
                 },
                 ownPackageId = appContext.packageName,
             ).also { notificationAgent = it }
+            val contacts = ContactsAgent(
+                source = AndroidContactsSource(appContext),
+                send = { safeSend(ChannelId.BULK, it) },
+            ).also { contactsAgent = it }
             val mediaRemote = MediaRemoteAgent(
                 context = appContext,
                 scope = ownerScope,
@@ -259,6 +266,7 @@ object AppRuntime {
             session.registerHandler(ChannelId.BULK) { envelope ->
                 transfer.onMessage(envelope.payload)
                 media.onMessage(envelope.payload)
+                contacts.onMessage(envelope.payload)
             }
             sync.start(ownerScope)
             notifications.start(ownerScope)

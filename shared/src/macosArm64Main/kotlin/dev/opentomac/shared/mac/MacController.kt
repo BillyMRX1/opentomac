@@ -1,6 +1,7 @@
 package dev.opentomac.shared.mac
 
 import dev.opentomac.shared.clipboard.ClipboardSync
+import dev.opentomac.shared.contacts.ContactsCompanion
 import dev.opentomac.shared.crypto.Identity
 import dev.opentomac.shared.media.MediaCompanionBrowser
 import dev.opentomac.shared.notifications.NotificationCompanion
@@ -68,6 +69,13 @@ data class MacPhoto(
     val name: String,
 )
 
+/** One phone contact search result, flattened for the Swift UI. */
+data class MacContact(
+    val name: String,
+    val phones: List<String>,
+    val emails: List<String>,
+)
+
 /**
  * Kotlin orchestrator for the macOS app. It owns the identity, trust store, session,
  * and feature engines, keeping all coroutine, Flow, and suspend interaction in Kotlin
@@ -98,6 +106,7 @@ class MacController(
     private lateinit var transferEngine: TransferEngine
     private lateinit var notifications: NotificationCompanion
     private lateinit var mediaBrowser: MediaCompanionBrowser
+    private lateinit var contactsCompanion: ContactsCompanion
     private val transportFactory = ConfigurableTransportFactory()
 
     private var pendingPairing: PendingPairing? = null
@@ -152,6 +161,7 @@ class MacController(
                 send = { safeSend(ChannelId.EVENT, it) },
             )
             mediaBrowser = MediaCompanionBrowser(send = { safeSend(ChannelId.BULK, it) })
+            contactsCompanion = ContactsCompanion(send = { safeSend(ChannelId.BULK, it) })
 
             sessionManager.registerHandler(ChannelId.EVENT) { envelope ->
                 when (val message = envelope.payload) {
@@ -176,6 +186,7 @@ class MacController(
             sessionManager.registerHandler(ChannelId.BULK) { envelope ->
                 transferEngine.onMessage(envelope.payload)
                 mediaBrowser.onMessage(envelope.payload)
+                contactsCompanion.onMessage(envelope.payload)
             }
 
             clipboardSync.start(scope)
@@ -374,6 +385,23 @@ class MacController(
         scope.launch {
             val bytes = runCatching { mediaBrowser.thumbnail(id) }.getOrNull()
             onResult(bytes?.takeIf { it.isNotEmpty() }?.let { Base64.encode(it) })
+        }
+    }
+
+    /** Searches phone contacts; [onResult]'s Boolean reports phone permission. */
+    fun searchContacts(query: String, onResult: (List<MacContact>, Boolean) -> Unit) {
+        scope.launch {
+            runCatching { contactsCompanion.search(query) }
+                .onSuccess { response ->
+                    onResult(
+                        response.items.map { MacContact(it.name, it.phones, it.emails) },
+                        response.granted,
+                    )
+                }
+                .onFailure { cause ->
+                    println("opentomac contacts search failed: ${cause.message}")
+                    onResult(emptyList(), true)
+                }
         }
     }
 

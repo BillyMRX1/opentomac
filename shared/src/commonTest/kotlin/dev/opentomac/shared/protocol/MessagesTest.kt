@@ -227,6 +227,28 @@ class MessagesTest {
     }
 
     @Test
+    fun contactsSearchRequestRoundTrip() {
+        val msg = ContactsSearchRequest(query = "Ada", limit = 20)
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.BULK))
+    }
+
+    @Test
+    fun contactsSearchResponseRoundTrip() {
+        val msg = ContactsSearchResponse(
+            query = "Ada",
+            items = listOf(
+                ContactItem(
+                    name = "Ada Lovelace",
+                    phones = listOf("+44 20 7946 0958"),
+                    emails = listOf("ada@example.com"),
+                ),
+            ),
+            granted = false,
+        )
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.BULK))
+    }
+
+    @Test
     fun notificationPostedRoundTrip() {
         val msg = NotificationPosted(
             key = "0|com.example|1|null|10001",

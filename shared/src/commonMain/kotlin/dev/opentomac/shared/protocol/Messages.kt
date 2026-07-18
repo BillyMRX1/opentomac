@@ -379,6 +379,30 @@ data class MediaControl(
     @ProtoNumber(1) val command: String,
 ) : Message
 
+// --- Contacts ---
+
+@Serializable
+data class ContactItem(
+    @ProtoNumber(1) val name: String,
+    @ProtoNumber(2) val phones: List<String> = emptyList(),
+    @ProtoNumber(3) val emails: List<String> = emptyList(),
+)
+
+@Serializable
+@SerialName("contacts_search_request")
+data class ContactsSearchRequest(
+    @ProtoNumber(1) val query: String,
+    @ProtoNumber(2) val limit: Int,
+) : Message
+
+@Serializable
+@SerialName("contacts_search_response")
+data class ContactsSearchResponse(
+    @ProtoNumber(1) val query: String,
+    @ProtoNumber(2) val items: List<ContactItem> = emptyList(),
+    @ProtoNumber(3) val granted: Boolean = true,
+) : Message
+
 // --- Notifications ---
 
 @Serializable
