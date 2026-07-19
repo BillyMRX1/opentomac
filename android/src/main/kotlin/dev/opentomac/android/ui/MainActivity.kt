@@ -2,12 +2,14 @@ package dev.opentomac.android.ui
 
 import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -19,6 +21,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -58,6 +61,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,13 +80,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
+import com.google.zxing.BarcodeFormat
+import com.journeyapps.barcodescanner.BarcodeCallback
+import com.journeyapps.barcodescanner.BarcodeView
+import com.journeyapps.barcodescanner.DefaultDecoderFactory
 import dev.opentomac.android.runtime.AppRuntime
 import dev.opentomac.android.runtime.PairingState
 import dev.opentomac.android.service.ConnectionService
@@ -849,13 +859,48 @@ private fun EmptyStateCard(
 @Composable
 private fun PairScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val lifecycleOwner = LocalLifecycleOwner.current
     val pairing by AppRuntime.pairingState.collectAsStateWithLifecycle()
+    var cameraPermissionGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    var cameraPermissionRequested by rememberSaveable { mutableStateOf(false) }
+    var cameraPermissionPermanentlyDenied by rememberSaveable { mutableStateOf(false) }
 
-    val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
-        val contents = result.contents
-        if (contents != null) {
-            scope.launch { AppRuntime.joinPairing(contents) }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        cameraPermissionGranted = granted
+        cameraPermissionPermanentlyDenied = !granted && activity?.let {
+            !ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA)
+        } == true
+    }
+
+    LaunchedEffect(pairing, cameraPermissionGranted) {
+        if (pairing is PairingState.Idle && !cameraPermissionGranted && !cameraPermissionRequested) {
+            cameraPermissionRequested = true
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
+    }
+
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val granted = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA,
+                ) == PackageManager.PERMISSION_GRANTED
+                cameraPermissionGranted = granted
+                if (granted) cameraPermissionPermanentlyDenied = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LazyColumn(
@@ -866,7 +911,29 @@ private fun PairScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
             PairTopBar(onBack = { AppRuntime.resetPairing(); onDone() })
             when (val current = pairing) {
                 is PairingState.Idle -> {
-                    PairingCodeGraphic()
+                    if (cameraPermissionGranted) {
+                        LivePairingScanner(
+                            onBarcode = { contents ->
+                                scope.launch { AppRuntime.joinPairing(contents) }
+                            },
+                        )
+                    } else {
+                        CameraPermissionCard(
+                            onGrantCameraAccess = {
+                                if (cameraPermissionPermanentlyDenied) {
+                                    context.startActivity(
+                                        Intent(
+                                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                            Uri.fromParts("package", context.packageName, null),
+                                        ),
+                                    )
+                                } else {
+                                    cameraPermissionRequested = true
+                                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                }
+                            },
+                        )
+                    }
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 18.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -883,19 +950,6 @@ private fun PairScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
                         )
-                        Button(
-                            onClick = {
-                                scanner.launch(
-                                    ScanOptions()
-                                        .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                        .setPrompt("Scan the pairing code on your Mac")
-                                        .setBeepEnabled(false),
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                            shape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 8.dp),
-                            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 16.dp),
-                        ) { Text("Scan pairing code") }
                     }
                 }
                 is PairingState.Working -> PairStatePanel {
@@ -994,52 +1048,115 @@ private fun PairTopBar(onBack: () -> Unit) {
 }
 
 @Composable
-private fun PairingCodeGraphic() {
-    val flourish = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+private fun LivePairingScanner(onBarcode: (String) -> Unit) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentOnBarcode by rememberUpdatedState(onBarcode)
+    val barcodeView = remember(context) {
+        BarcodeView(context).apply {
+            setUseTextureView(true)
+            decoderFactory = DefaultDecoderFactory(listOf(BarcodeFormat.QR_CODE))
+        }
+    }
+    val frameColor = MaterialTheme.colorScheme.primaryContainer
+    val frameShadow = MaterialTheme.colorScheme.scrim.copy(alpha = 0.42f)
+
+    DisposableEffect(barcodeView, lifecycleOwner) {
+        var handled = false
+        barcodeView.decodeContinuous(
+            BarcodeCallback { result ->
+                val contents = result.text ?: return@BarcodeCallback
+                if (!handled) {
+                    handled = true
+                    barcodeView.pause()
+                    currentOnBarcode(contents)
+                }
+            },
+        )
+
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> if (!handled) barcodeView.resume()
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP,
+                Lifecycle.Event.ON_DESTROY,
+                -> barcodeView.pause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            barcodeView.resume()
+        }
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            barcodeView.stopDecoding()
+            barcodeView.pause()
+        }
+    }
+
     Surface(
-        modifier = Modifier.fillMaxWidth().height(210.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .semantics { contentDescription = "Live camera preview for scanning the pairing code" },
+        shape = ConnectionShape,
+        color = MaterialTheme.colorScheme.scrim,
+    ) {
+        Box(modifier = Modifier.fillMaxSize().clip(ConnectionShape)) {
+            AndroidView(
+                factory = { barcodeView },
+                modifier = Modifier.fillMaxSize(),
+            )
+            Canvas(modifier = Modifier.fillMaxSize().padding(28.dp)) {
+                val bracketLength = 34.dp.toPx()
+                val shadowWidth = 6.dp.toPx()
+                val frameWidth = 3.dp.toPx()
+                val maxX = size.width
+                val maxY = size.height
+                val segments = listOf(
+                    Pair(androidx.compose.ui.geometry.Offset(0f, bracketLength), androidx.compose.ui.geometry.Offset(0f, 0f)),
+                    Pair(androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Offset(bracketLength, 0f)),
+                    Pair(androidx.compose.ui.geometry.Offset(maxX - bracketLength, 0f), androidx.compose.ui.geometry.Offset(maxX, 0f)),
+                    Pair(androidx.compose.ui.geometry.Offset(maxX, 0f), androidx.compose.ui.geometry.Offset(maxX, bracketLength)),
+                    Pair(androidx.compose.ui.geometry.Offset(0f, maxY - bracketLength), androidx.compose.ui.geometry.Offset(0f, maxY)),
+                    Pair(androidx.compose.ui.geometry.Offset(0f, maxY), androidx.compose.ui.geometry.Offset(bracketLength, maxY)),
+                    Pair(androidx.compose.ui.geometry.Offset(maxX - bracketLength, maxY), androidx.compose.ui.geometry.Offset(maxX, maxY)),
+                    Pair(androidx.compose.ui.geometry.Offset(maxX, maxY - bracketLength), androidx.compose.ui.geometry.Offset(maxX, maxY)),
+                )
+                segments.forEach { (start, end) ->
+                    drawLine(frameShadow, start, end, shadowWidth, StrokeCap.Round)
+                    drawLine(frameColor, start, end, frameWidth, StrokeCap.Round)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CameraPermissionCard(onGrantCameraAccess: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 260.dp),
         shape = ConnectionShape,
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f),
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                drawCircle(
-                    color = flourish,
-                    radius = 86.dp.toPx(),
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.18f, size.height * 0.92f),
-                    style = Stroke(width = 16.dp.toPx()),
-                )
-                drawCircle(
-                    color = flourish,
-                    radius = 60.dp.toPx(),
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.90f, size.height * 0.08f),
-                    style = Stroke(width = 12.dp.toPx()),
-                )
-            }
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 36.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        ) {
+            Text(
+                "Camera access is needed to scan the pairing code",
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
+            )
+            FilledTonalButton(
+                onClick = onGrantCameraAccess,
+                shape = RoundedCornerShape(18.dp),
             ) {
-                Surface(
-                    modifier = Modifier.size(96.dp),
-                    shape = RoundedCornerShape(30.dp, 18.dp, 30.dp, 30.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        GlyphIcon(
-                            glyph = Glyph.PairingCode,
-                            contentDescription = "Pairing code illustration",
-                            modifier = Modifier.size(48.dp),
-                        )
-                    }
-                }
-                Text(
-                    "SECURE LOCAL PAIRING",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.68f),
-                )
+                Text("Grant camera access")
             }
         }
     }
@@ -1099,7 +1216,6 @@ private enum class Glyph {
     Control,
     Transfer,
     Device,
-    PairingCode,
     Back,
     Check,
     Error,
@@ -1198,50 +1314,6 @@ private fun GlyphIcon(
                 )
                 drawLine(tint, point(.5f, .70f), point(.5f, .84f), stroke, StrokeCap.Round)
                 drawLine(tint, point(.31f, .86f), point(.69f, .86f), stroke, StrokeCap.Round)
-            }
-            Glyph.PairingCode -> {
-                fun finder(x: Float, y: Float) {
-                    drawRoundRect(
-                        color = tint,
-                        topLeft = point(x, y),
-                        size = androidx.compose.ui.geometry.Size(w * .28f, w * .28f),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .035f),
-                        style = style,
-                    )
-                    drawRoundRect(
-                        color = tint,
-                        topLeft = point(x + .09f, y + .09f),
-                        size = androidx.compose.ui.geometry.Size(w * .10f, w * .10f),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .02f),
-                    )
-                }
-                finder(.10f, .10f)
-                finder(.62f, .10f)
-                finder(.10f, .62f)
-                drawRoundRect(
-                    color = tint,
-                    topLeft = point(.56f, .56f),
-                    size = androidx.compose.ui.geometry.Size(w * .12f, w * .12f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .025f),
-                )
-                drawRoundRect(
-                    color = tint,
-                    topLeft = point(.74f, .56f),
-                    size = androidx.compose.ui.geometry.Size(w * .16f, w * .10f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .025f),
-                )
-                drawRoundRect(
-                    color = tint,
-                    topLeft = point(.56f, .74f),
-                    size = androidx.compose.ui.geometry.Size(w * .10f, w * .16f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .025f),
-                )
-                drawRoundRect(
-                    color = tint,
-                    topLeft = point(.74f, .74f),
-                    size = androidx.compose.ui.geometry.Size(w * .16f, w * .16f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .025f),
-                )
             }
             Glyph.Back -> {
                 drawLine(tint, point(.78f, .5f), point(.22f, .5f), stroke, StrokeCap.Round)
