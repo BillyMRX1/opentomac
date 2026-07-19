@@ -12,14 +12,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -31,7 +26,6 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -298,7 +292,7 @@ private fun DashboardScreen(
         contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 44.dp),
     ) {
         item {
-            DashboardTopBar(state)
+            DashboardTopBar()
             ConnectionCard(state = state, onPair = onPair)
             Spacer(Modifier.height(14.dp))
             QuickActions(
@@ -322,7 +316,7 @@ private fun DashboardScreen(
                 EmptyStateCard(
                     glyph = Glyph.Transfer,
                     title = "No transfers yet",
-                    body = "Sent and received files will stay visible here.",
+                    body = "Sent and received files appear here.",
                 )
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -356,30 +350,12 @@ private fun DashboardScreen(
 }
 
 @Composable
-private fun DashboardTopBar(state: ConnectionState) {
-    Row(
+private fun DashboardTopBar() {
+    Box(
         modifier = Modifier.fillMaxWidth().height(72.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        contentAlignment = Alignment.CenterStart,
     ) {
         Text("opentomac", style = MaterialTheme.typography.headlineMedium)
-        Surface(
-            modifier = Modifier.size(44.dp),
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                GlyphIcon(
-                    glyph = Glyph.Status,
-                    contentDescription = if (state is ConnectionState.Connected) {
-                        "Connection active"
-                    } else {
-                        "No Mac connected"
-                    },
-                )
-            }
-        }
     }
 }
 
@@ -586,10 +562,24 @@ private fun SectionTitle(title: String) {
 @Composable
 private fun NotificationAccessRow() {
     val context = LocalContext.current
-    val enabled = remember {
-        androidx.core.app.NotificationManagerCompat
-            .getEnabledListenerPackages(context)
-            .contains(context.packageName)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var enabled by remember {
+        mutableStateOf(
+            androidx.core.app.NotificationManagerCompat
+                .getEnabledListenerPackages(context)
+                .contains(context.packageName),
+        )
+    }
+    DisposableEffect(context, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                enabled = androidx.core.app.NotificationManagerCompat
+                    .getEnabledListenerPackages(context)
+                    .contains(context.packageName)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     if (!enabled) {
         PermissionCard(
@@ -690,7 +680,7 @@ private fun ScreenshotSwitchRow(
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("Offer new screenshots to Mac", style = MaterialTheme.typography.titleSmall)
             Text(
-                if (enabled) "You choose whether to send each one." else "Available after you pair.",
+                if (enabled) "You choose whether to send each one." else "Finishing app setup.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -876,14 +866,14 @@ private fun PairScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
             PairTopBar(onBack = { AppRuntime.resetPairing(); onDone() })
             when (val current = pairing) {
                 is PairingState.Idle -> {
-                    ScannerPanel()
+                    PairingCodeGraphic()
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 18.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            "Scan the pairing code",
+                            "Scan the pairing code shown on your Mac",
                             style = MaterialTheme.typography.headlineMedium,
                             textAlign = TextAlign.Center,
                         )
@@ -902,9 +892,9 @@ private fun PairScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                                         .setBeepEnabled(false),
                                 )
                             },
-                            modifier = Modifier.padding(top = 6.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                             shape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 8.dp),
-                            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 13.dp),
+                            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 16.dp),
                         ) { Text("Scan pairing code") }
                     }
                 }
@@ -1004,62 +994,53 @@ private fun PairTopBar(onBack: () -> Unit) {
 }
 
 @Composable
-private fun ScannerPanel() {
-    val transition = rememberInfiniteTransition(label = "scanner")
-    val scanPosition by transition.animateFloat(
-        initialValue = 0.12f,
-        targetValue = 0.88f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2200),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "scan line",
-    )
+private fun PairingCodeGraphic() {
+    val flourish = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
     Surface(
-        modifier = Modifier.fillMaxWidth().height(500.dp),
+        modifier = Modifier.fillMaxWidth().height(210.dp),
         shape = ConnectionShape,
-        color = Color(0xFF151E29),
-        contentColor = Color(0xFFF3F7FC),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f),
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val gridColor = Color.White.copy(alpha = 0.035f)
-                val grid = 40.dp.toPx()
-                var y = grid
-                while (y < size.height) {
-                    drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(0f, y), end = androidx.compose.ui.geometry.Offset(size.width, y))
-                    y += grid
-                }
+                drawCircle(
+                    color = flourish,
+                    radius = 86.dp.toPx(),
+                    center = androidx.compose.ui.geometry.Offset(size.width * 0.18f, size.height * 0.92f),
+                    style = Stroke(width = 16.dp.toPx()),
+                )
+                drawCircle(
+                    color = flourish,
+                    radius = 60.dp.toPx(),
+                    center = androidx.compose.ui.geometry.Offset(size.width * 0.90f, size.height * 0.08f),
+                    style = Stroke(width = 12.dp.toPx()),
+                )
             }
-            Canvas(
-                modifier = Modifier
-                    .fillMaxWidth(0.70f)
-                    .aspectRatio(1f)
-                    .semantics { contentDescription = "QR code viewfinder" },
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                val stroke = 3.dp.toPx()
-                val radius = 30.dp.toPx()
-                drawRoundRect(
-                    color = Color.White.copy(alpha = 0.82f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius * 0.56f),
-                    style = Stroke(width = stroke),
-                )
-                val lineY = size.height * scanPosition
-                drawLine(
-                    color = Color(0xFF4AA3FF),
-                    start = androidx.compose.ui.geometry.Offset(18.dp.toPx(), lineY),
-                    end = androidx.compose.ui.geometry.Offset(size.width - 18.dp.toPx(), lineY),
-                    strokeWidth = 2.dp.toPx(),
-                    cap = StrokeCap.Round,
+                Surface(
+                    modifier = Modifier.size(96.dp),
+                    shape = RoundedCornerShape(30.dp, 18.dp, 30.dp, 30.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        GlyphIcon(
+                            glyph = Glyph.PairingCode,
+                            contentDescription = "Pairing code illustration",
+                            modifier = Modifier.size(48.dp),
+                        )
+                    }
+                }
+                Text(
+                    "SECURE LOCAL PAIRING",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.68f),
                 )
             }
-            Text(
-                "Point your phone at the code shown by opentomac on your Mac.",
-                modifier = Modifier.align(Alignment.BottomCenter).padding(28.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.84f),
-                textAlign = TextAlign.Center,
-            )
         }
     }
 }
@@ -1118,7 +1099,7 @@ private enum class Glyph {
     Control,
     Transfer,
     Device,
-    Status,
+    PairingCode,
     Back,
     Check,
     Error,
@@ -1218,10 +1199,49 @@ private fun GlyphIcon(
                 drawLine(tint, point(.5f, .70f), point(.5f, .84f), stroke, StrokeCap.Round)
                 drawLine(tint, point(.31f, .86f), point(.69f, .86f), stroke, StrokeCap.Round)
             }
-            Glyph.Status -> {
-                drawCircle(tint, radius = w * .065f, center = point(.25f, .5f))
-                drawCircle(tint, radius = w * .065f, center = point(.5f, .5f))
-                drawCircle(tint, radius = w * .065f, center = point(.75f, .5f))
+            Glyph.PairingCode -> {
+                fun finder(x: Float, y: Float) {
+                    drawRoundRect(
+                        color = tint,
+                        topLeft = point(x, y),
+                        size = androidx.compose.ui.geometry.Size(w * .28f, w * .28f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .035f),
+                        style = style,
+                    )
+                    drawRoundRect(
+                        color = tint,
+                        topLeft = point(x + .09f, y + .09f),
+                        size = androidx.compose.ui.geometry.Size(w * .10f, w * .10f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .02f),
+                    )
+                }
+                finder(.10f, .10f)
+                finder(.62f, .10f)
+                finder(.10f, .62f)
+                drawRoundRect(
+                    color = tint,
+                    topLeft = point(.56f, .56f),
+                    size = androidx.compose.ui.geometry.Size(w * .12f, w * .12f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .025f),
+                )
+                drawRoundRect(
+                    color = tint,
+                    topLeft = point(.74f, .56f),
+                    size = androidx.compose.ui.geometry.Size(w * .16f, w * .10f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .025f),
+                )
+                drawRoundRect(
+                    color = tint,
+                    topLeft = point(.56f, .74f),
+                    size = androidx.compose.ui.geometry.Size(w * .10f, w * .16f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .025f),
+                )
+                drawRoundRect(
+                    color = tint,
+                    topLeft = point(.74f, .74f),
+                    size = androidx.compose.ui.geometry.Size(w * .16f, w * .16f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .025f),
+                )
             }
             Glyph.Back -> {
                 drawLine(tint, point(.78f, .5f), point(.22f, .5f), stroke, StrokeCap.Round)
