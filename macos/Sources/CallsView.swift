@@ -8,70 +8,65 @@ struct CallsView: View {
     @State private var generation: Int?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Recent phone calls").font(.title2.bold())
-                Spacer()
-                Button("Close") { isPresented = false }
-                    .keyboardShortcut(.cancelAction)
-            }
+        ZStack {
+            LiquidBackground()
 
-            if !model.callsGranted {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text("Allow call history access on the phone")
-                        .font(.callout)
-                    Spacer()
-                }
-                .padding(10)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-            }
-
-            if model.calls.isEmpty {
-                ContentUnavailableView(
-                    model.callsGranted ? "No recent calls" : "Call history unavailable",
-                    systemImage: "phone",
-                    description: Text(model.callsGranted ? "Recent calls from your phone will appear here." : "Grant call history access on the phone, then reopen this sheet.")
-                )
-            } else {
-                List {
-                    ForEach(Array(model.calls.enumerated()), id: \.offset) { _, entry in
-                        HStack(spacing: 12) {
-                            Image(systemName: icon(for: entry.type))
-                                .foregroundStyle(iconColor(for: entry.type))
-                                .frame(width: 24)
-
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(entry.contactName.isEmpty ? entry.number : entry.contactName)
-                                    .font(.headline)
-                                HStack(spacing: 6) {
-                                    if !entry.contactName.isEmpty && !entry.number.isEmpty {
-                                        Text(entry.number)
-                                    }
-                                    Text(entry.type.capitalized)
-                                    if entry.durationSec > 0 {
-                                        Text(duration(entry.durationSec))
-                                    }
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            }
-
-                            Spacer()
-
-                            Text(relativeTime(entry.dateMs))
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.standard) {
+                SheetHeader(
+                    title: "Recent phone calls",
+                    subtitle: "Loaded from your phone only while this window is open"
+                ) {
+                    HStack(spacing: DesignTokens.Spacing.small) {
+                        Button("Refresh", systemImage: "arrow.clockwise") {
+                            if let generation { model.loadCallLog(generation: generation) }
                         }
-                        .padding(.vertical, 5)
+                        .buttonStyle(.bordered)
+                        Button("Close") { isPresented = false }
+                            .buttonStyle(.bordered)
+                            .keyboardShortcut(.cancelAction)
                     }
                 }
-                .listStyle(.inset)
+
+                if !model.callsGranted {
+                    PermissionBanner(
+                        systemImage: "exclamationmark.triangle.fill",
+                        tint: DesignTokens.ColorToken.warning,
+                        title: "Call history access is required",
+                        detail: "Allow call history access on the phone, then reopen this sheet."
+                    ) {
+                        EmptyView()
+                    }
+                }
+
+                Group {
+                    if model.calls.isEmpty {
+                        EmptyStateView(
+                            title: model.callsGranted ? "No recent calls" : "Call history unavailable",
+                            description: model.callsGranted
+                                ? "Recent calls from your phone will appear here."
+                                : "Grant call history access on the phone, then reopen this sheet.",
+                            systemImage: "phone"
+                        )
+                        .frame(maxHeight: .infinity)
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(Array(model.calls.enumerated()), id: \.offset) { index, entry in
+                                    if index > 0 { Divider() }
+                                    callRow(entry)
+                                }
+                            }
+                            .padding(.horizontal, DesignTokens.Spacing.standard)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .glassCard(material: .regularMaterial)
             }
+            .padding(DesignTokens.Spacing.xLarge)
         }
-        .padding(20)
-        .frame(minWidth: 560, minHeight: 460)
+        .tint(DesignTokens.ColorToken.accent)
+        .frame(minWidth: 620, minHeight: 520)
         .onAppear {
             let token = model.beginCallSession()
             generation = token
@@ -82,6 +77,46 @@ struct CallsView: View {
             if let generation { model.clearCallLog(generation: generation) }
             generation = nil
         }
+    }
+
+    private func callRow(_ entry: MacCallEntry) -> some View {
+        HStack(spacing: DesignTokens.Spacing.medium) {
+            IconBadge(
+                systemName: icon(for: entry.type),
+                tint: iconColor(for: entry.type),
+                size: 42
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.contactName.isEmpty ? entry.number : entry.contactName)
+                    .font(DesignTokens.TypeStyle.heading)
+                HStack(spacing: 6) {
+                    if !entry.contactName.isEmpty && !entry.number.isEmpty {
+                        Text(entry.number)
+                    }
+                    Text(entry.type.capitalized)
+                    if entry.durationSec > 0 {
+                        Text(duration(entry.durationSec))
+                    }
+                }
+                .font(DesignTokens.TypeStyle.meta)
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(relativeTime(entry.dateMs))
+                    .font(DesignTokens.TypeStyle.body)
+                Text(
+                    Date(timeIntervalSince1970: TimeInterval(entry.dateMs) / 1_000)
+                        .formatted(date: .omitted, time: .shortened)
+                )
+                .font(DesignTokens.TypeStyle.meta)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 14)
     }
 
     private func icon(for type: String) -> String {
@@ -95,9 +130,9 @@ struct CallsView: View {
 
     private func iconColor(for type: String) -> Color {
         switch type {
-        case "missed": return .red
-        case "rejected": return .orange
-        default: return .secondary
+        case "missed": return DesignTokens.ColorToken.danger
+        case "rejected": return DesignTokens.ColorToken.warning
+        default: return DesignTokens.ColorToken.accent
         }
     }
 

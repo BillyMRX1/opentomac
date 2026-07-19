@@ -12,35 +12,42 @@ struct MessagesView: View {
     @State private var generation: Int?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Phone messages").font(.title2.bold())
-                Spacer()
-                Button("Close") { isPresented = false }
-                    .keyboardShortcut(.cancelAction)
-            }
+        ZStack {
+            LiquidBackground()
 
-            if !model.smsGranted {
-                HStack(spacing: 8) {
-                    Image(systemName: "message.fill")
-                        .foregroundStyle(.orange)
-                    Text("Allow SMS access on the phone")
-                        .font(.callout)
-                    Spacer()
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.standard) {
+                SheetHeader(
+                    title: "Phone messages",
+                    subtitle: "Conversations are loaded from your phone on demand"
+                ) {
+                    Button("Close") { isPresented = false }
+                        .buttonStyle(.bordered)
+                        .keyboardShortcut(.cancelAction)
                 }
-                .padding(10)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-            }
 
-            HSplitView {
-                threadList
-                    .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
-                conversation
-                    .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                PermissionBanner(
+                    systemImage: model.smsGranted ? "message.badge.fill" : "message.fill",
+                    tint: model.smsGranted ? DesignTokens.ColorToken.accent : DesignTokens.ColorToken.warning,
+                    title: model.smsGranted ? "SMS access is active" : "SMS access is required",
+                    detail: model.smsGranted
+                        ? "Replies may require confirmation on the phone before they send."
+                        : "Allow SMS access on the phone to browse conversations."
+                ) {
+                    EmptyView()
+                }
+
+                HSplitView {
+                    threadList
+                        .frame(minWidth: 250, idealWidth: 290, maxWidth: 330)
+                    conversation
+                        .frame(minWidth: 430, maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .glassCard(material: .regularMaterial)
             }
+            .padding(DesignTokens.Spacing.xLarge)
         }
-        .padding(20)
-        .frame(minWidth: 760, minHeight: 520)
+        .tint(DesignTokens.ColorToken.accent)
+        .frame(minWidth: 820, minHeight: 600)
         .onAppear {
             let token = model.beginSmsSession()
             generation = token
@@ -62,47 +69,54 @@ struct MessagesView: View {
     }
 
     private var threadList: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.small) {
             Text("Conversations")
-                .font(.headline)
-                .padding(.horizontal, 8)
+                .font(DesignTokens.TypeStyle.heading)
+                .padding(.horizontal, DesignTokens.Spacing.standard)
+                .padding(.top, DesignTokens.Spacing.standard)
 
             if model.smsThreads.isEmpty {
-                Text(model.smsGranted ? "No SMS conversations found." : "SMS access is required to browse conversations.")
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding()
+                EmptyStateView(
+                    title: model.smsGranted ? "No conversations" : "SMS access required",
+                    description: model.smsGranted
+                        ? "Your phone’s SMS conversations will appear here."
+                        : "Grant access on the phone, then reopen this sheet.",
+                    systemImage: "message"
+                )
+                .frame(maxHeight: .infinity)
             } else {
                 List(model.smsThreads, id: \.threadId, selection: $selectedThreadId) { thread in
-                    HStack(alignment: .top, spacing: 8) {
-                        Circle()
-                            .fill(thread.unread ? Color.accentColor : Color.clear)
-                            .frame(width: 7, height: 7)
-                            .padding(.top, 6)
+                    HStack(alignment: .top, spacing: DesignTokens.Spacing.small) {
+                        ThreadAvatar(
+                            name: thread.contactName.isEmpty ? thread.address : thread.contactName,
+                            unread: thread.unread
+                        )
 
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 6) {
                                 Text(thread.contactName.isEmpty ? thread.address : thread.contactName)
-                                    .font(.callout.weight(thread.unread ? .semibold : .regular))
+                                    .font(DesignTokens.TypeStyle.body)
+                                    .fontWeight(thread.unread ? .semibold : .regular)
                                     .lineLimit(1)
                                 Spacer(minLength: 4)
                                 Text(relativeTime(thread.dateMs))
-                                    .font(.caption2)
+                                    .font(DesignTokens.TypeStyle.meta)
                                     .foregroundStyle(.tertiary)
                             }
                             Text(thread.snippet.isEmpty ? "No message text" : thread.snippet)
-                                .font(.caption)
+                                .font(DesignTokens.TypeStyle.meta)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, DesignTokens.Spacing.xSmall)
                     .tag(thread.threadId)
                 }
                 .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
             }
         }
+        .background(.ultraThinMaterial)
     }
 
     @ViewBuilder
@@ -112,61 +126,81 @@ struct MessagesView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(selectedTitle)
-                            .font(.headline)
+                            .font(DesignTokens.TypeStyle.section)
                         if let address = selectedThread?.address, !address.isEmpty {
                             Text(address)
-                                .font(.caption)
+                                .font(DesignTokens.TypeStyle.meta)
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
                         }
                     }
                     Spacer()
+                    IconBadge(systemName: "message.fill", size: 36)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, DesignTokens.Spacing.standard + 2)
+                .padding(.vertical, DesignTokens.Spacing.medium)
 
                 Divider()
 
                 if model.smsMessages.isEmpty {
-                    Text(model.smsGranted ? "No messages in this conversation." : "SMS access is required to read this conversation.")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    EmptyStateView(
+                        title: model.smsGranted ? "No messages" : "SMS access required",
+                        description: model.smsGranted
+                            ? "There are no messages in this conversation."
+                            : "Grant SMS access on the phone to read this conversation.",
+                        systemImage: "bubble.left.and.bubble.right"
+                    )
+                    .frame(maxHeight: .infinity)
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 10) {
+                        LazyVStack(spacing: DesignTokens.Spacing.small + 2) {
                             ForEach(Array(model.smsMessages.enumerated()), id: \.offset) { _, message in
                                 SmsMessageRow(message: message)
                             }
                         }
-                        .padding(16)
+                        .padding(DesignTokens.Spacing.large)
                     }
                 }
 
                 Divider()
 
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: DesignTokens.Spacing.small) {
                         TextField("Reply", text: $reply)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(.plain)
+                            .padding(.horizontal, DesignTokens.Spacing.medium)
+                            .frame(height: 34)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.small, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: DesignTokens.Radius.small, style: .continuous)
+                                    .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                            }
                             .onSubmit(sendReply)
                         Button("Send", action: sendReply)
+                            .buttonStyle(.borderedProminent)
                             .keyboardShortcut(.defaultAction)
                             .disabled(reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replyAddress.isEmpty || isSending)
                     }
                     if let sendError {
                         Text(sendError)
-                            .font(.caption)
-                            .foregroundStyle(.red)
+                            .font(DesignTokens.TypeStyle.meta)
+                            .foregroundStyle(DesignTokens.ColorToken.danger)
+                    } else {
+                        Text("Reply through your phone")
+                            .font(DesignTokens.TypeStyle.meta)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .padding(12)
+                .padding(DesignTokens.Spacing.medium)
+                .background(.ultraThinMaterial)
             }
         } else {
-            ContentUnavailableView(
-                "Select a conversation",
-                systemImage: "message",
-                description: Text("Messages are loaded from your phone on demand.")
+            EmptyStateView(
+                title: "Select a conversation",
+                description: "Messages are loaded from your phone on demand.",
+                systemImage: "message"
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -212,29 +246,70 @@ struct MessagesView: View {
     }
 }
 
+private struct ThreadAvatar: View {
+    let name: String
+    let unread: Bool
+
+    var body: some View {
+        Text(initials)
+            .font(DesignTokens.TypeStyle.metaEmphasized)
+            .foregroundStyle(.white)
+            .frame(width: 38, height: 38)
+            .background(
+                DesignTokens.ColorToken.accent.opacity(unread ? 1 : 0.72),
+                in: RoundedRectangle(cornerRadius: DesignTokens.Radius.medium, style: .continuous)
+            )
+            .overlay(alignment: .topTrailing) {
+                if unread {
+                    Circle()
+                        .fill(DesignTokens.ColorToken.accent)
+                        .frame(width: 8, height: 8)
+                        .overlay { Circle().stroke(.white, lineWidth: 1.5) }
+                        .offset(x: 2, y: -2)
+                }
+            }
+    }
+
+    private var initials: String {
+        let parts = name.split(separator: " ")
+        let value = parts.prefix(2).compactMap(\.first).map(String.init).joined()
+        return value.isEmpty ? "?" : value.uppercased()
+    }
+}
+
 private struct SmsMessageRow: View {
     let message: MacSmsMessage
 
     var body: some View {
         HStack {
-            if !message.incoming { Spacer(minLength: 80) }
-            VStack(alignment: message.incoming ? .leading : .trailing, spacing: 4) {
+            if !message.incoming { Spacer(minLength: 100) }
+            VStack(alignment: message.incoming ? .leading : .trailing, spacing: DesignTokens.Spacing.xSmall) {
                 Text(message.body)
+                    .font(DesignTokens.TypeStyle.body)
                     .textSelection(.enabled)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, DesignTokens.Spacing.medium)
+                    .padding(.vertical, 9)
+                    .foregroundStyle(message.incoming ? Color.primary : Color.white)
                     .background(
-                        message.incoming ? AnyShapeStyle(.quaternary) : AnyShapeStyle(Color.accentColor.opacity(0.18)),
-                        in: RoundedRectangle(cornerRadius: 12)
+                        message.incoming
+                            ? AnyShapeStyle(.regularMaterial)
+                            : AnyShapeStyle(DesignTokens.ColorToken.accent),
+                        in: RoundedRectangle(cornerRadius: 15, style: .continuous)
                     )
+                    .overlay {
+                        if message.incoming {
+                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        }
+                    }
                 Text(
                     Date(timeIntervalSince1970: TimeInterval(message.dateMs) / 1_000)
                         .formatted(date: .omitted, time: .shortened)
                 )
-                .font(.caption2)
+                .font(DesignTokens.TypeStyle.meta)
                 .foregroundStyle(.tertiary)
             }
-            if message.incoming { Spacer(minLength: 80) }
+            if message.incoming { Spacer(minLength: 100) }
         }
     }
 }
