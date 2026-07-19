@@ -5,18 +5,64 @@ struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("opentomac").font(.headline)
-            Text(model.connectionStatus).font(.callout).foregroundStyle(.secondary)
-            Divider()
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.medium) {
+            HStack(spacing: DesignTokens.Spacing.medium) {
+                BrandMark(size: 42)
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.xSmall) {
+                    Text("opentomac")
+                        .font(DesignTokens.TypeStyle.section)
+                    HStack(spacing: DesignTokens.Spacing.small) {
+                        StatusDot(active: isConnected)
+                        Text(model.connectionStatus)
+                            .font(DesignTokens.TypeStyle.meta)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+            }
+
             Text(model.diagnostics())
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
                 .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, DesignTokens.Spacing.small)
+                .padding(.horizontal, DesignTokens.Spacing.medium)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.medium, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: DesignTokens.Radius.medium, style: .continuous)
+                        .stroke(Color.primary.opacity(0.09), lineWidth: 1)
+                }
+
+            Button {
+                openWindow(id: "main")
+            } label: {
+                Label("Open opentomac", systemImage: "macwindow")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
             Divider()
-            Button("Open opentomac") { openWindow(id: "main") }
-            Button("Quit") { NSApplication.shared.terminate(nil) }
+
+            Button {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                Label("Quit", systemImage: "power")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
         }
-        .padding(16)
-        .frame(width: 280)
+        .padding(DesignTokens.Spacing.standard)
+        .frame(width: 320)
+        .tint(DesignTokens.ColorToken.accent)
+    }
+
+    private var isConnected: Bool {
+        let status = model.connectionStatus.lowercased()
+        return status.contains("connected")
+            && !status.contains("not connected")
+            && !status.contains("disconnected")
     }
 }

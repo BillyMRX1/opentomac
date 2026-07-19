@@ -260,102 +260,149 @@ struct MirrorWindow: View {
     )
 
     var body: some View {
-        ZStack {
-            MirrorVideoSurface(
-                renderer: model.videoRenderer,
-                videoSize: model.mirrorVideoSize,
-                onTap: model.sendMirrorTap,
-                onSwipe: model.sendMirrorSwipe,
-                onText: model.sendMirrorText,
-                onInteraction: dismissControlHint
-            )
+        VStack(spacing: 0) {
+            mirrorToolbar
+
+            ZStack {
+                MirrorVideoSurface(
+                    renderer: model.videoRenderer,
+                    videoSize: model.mirrorVideoSize,
+                    onTap: model.sendMirrorTap,
+                    onSwipe: model.sendMirrorSwipe,
+                    onText: model.sendMirrorText,
+                    onInteraction: dismissControlHint
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if let reason = model.mirrorStoppedReason {
-                VStack(spacing: 10) {
-                    Text("Mirroring ended: \(reason)")
-                        .multilineTextAlignment(.center)
-                    Button("Retry") { model.startMirror() }
-                        .keyboardShortcut(.defaultAction)
+
+                if let reason = model.mirrorStoppedReason {
+                    VStack(spacing: DesignTokens.Spacing.medium) {
+                        IconBadge(
+                            systemName: "rectangle.slash",
+                            tint: DesignTokens.ColorToken.danger,
+                            size: 48
+                        )
+                        VStack(spacing: DesignTokens.Spacing.xSmall) {
+                            Text("Mirroring ended")
+                                .font(DesignTokens.TypeStyle.section)
+                            Text(reason)
+                                .font(DesignTokens.TypeStyle.meta)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        Button("Retry") { model.startMirror() }
+                            .buttonStyle(.borderedProminent)
+                            .keyboardShortcut(.defaultAction)
+                    }
+                    .padding(DesignTokens.Spacing.large)
+                    .frame(minWidth: 240)
+                    .glassCard(material: .regularMaterial)
+                } else if !model.mirrorConfigured {
+                    VStack(spacing: DesignTokens.Spacing.small) {
+                        ProgressView()
+                            .controlSize(.large)
+                            .tint(.white)
+                        Text("Waiting for the phone…")
+                            .font(DesignTokens.TypeStyle.bodyEmphasized)
+                        Text("The live screen will stay aspect-locked.")
+                            .font(DesignTokens.TypeStyle.meta)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(DesignTokens.Spacing.large)
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 240)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.large, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: DesignTokens.Radius.large, style: .continuous)
+                            .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                    }
                 }
-                .padding(14)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            } else if !model.mirrorConfigured {
-                Text("Waiting for the phone…")
-                    .font(.callout)
-                    .foregroundStyle(.white.opacity(0.8))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.black.opacity(0.55), in: Capsule())
-            }
-            if showsControlHint && model.mirrorConfigured {
-                VStack {
-                    Spacer()
-                    Text(
-                        "Click, scroll, and type to control the phone — "
-                            + "enable Mac control on the phone first"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 7)
-                    .background(.black.opacity(0.58), in: Capsule())
-                    .padding(12)
+
+                if showsControlHint && model.mirrorConfigured {
+                    VStack {
+                        Spacer()
+                        Label(
+                            "Click, scroll, and type to control the phone",
+                            systemImage: "hand.tap"
+                        )
+                        .font(DesignTokens.TypeStyle.meta)
+                        .foregroundStyle(.white.opacity(0.9))
+                        .padding(.horizontal, DesignTokens.Spacing.medium)
+                        .padding(.vertical, DesignTokens.Spacing.small)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay { Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1) }
+                        .padding(DesignTokens.Spacing.medium)
+                    }
+                    .allowsHitTesting(false)
                 }
-                .allowsHitTesting(false)
             }
+            .background(
+                RadialGradient(
+                    colors: [DesignTokens.ColorToken.accent.opacity(0.17), .black],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: 460
+                )
+            )
         }
-        .background(.black)
-        .frame(minWidth: 220, minHeight: 180)
+        .tint(DesignTokens.ColorToken.accent)
+        .frame(minWidth: 320, minHeight: 240)
         .background(
             MirrorWindowAccessor(videoSize: model.mirrorVideoSize) {
                 model.stopMirror()
             }
         )
-        .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
-                Button {
-                    model.sendMirrorKey("back")
-                    dismissControlHint()
-                } label: {
-                    Label("Back", systemImage: "chevron.backward")
-                }
-                .help("Back")
-                .disabled(!model.mirrorConfigured)
+    }
 
-                Button {
-                    model.sendMirrorKey("home")
-                    dismissControlHint()
-                } label: {
-                    Label("Home", systemImage: "house")
-                }
-                .help("Home")
-                .disabled(!model.mirrorConfigured)
+    private var mirrorToolbar: some View {
+        HStack(spacing: DesignTokens.Spacing.small) {
+            HStack(spacing: DesignTokens.Spacing.xSmall) {
+                mirrorControlButton("Back", systemImage: "chevron.backward", action: "back")
+                mirrorControlButton("Home", systemImage: "house", action: "home")
+                mirrorControlButton("Recents", systemImage: "square.on.square", action: "recents")
+            }
 
-                Button {
-                    model.sendMirrorKey("recents")
-                    dismissControlHint()
-                } label: {
-                    Label("Recents", systemImage: "square.on.square")
+            Spacer(minLength: DesignTokens.Spacing.small)
+
+            Picker(
+                "Quality",
+                selection: Binding(
+                    get: { model.mirrorQuality },
+                    set: model.setMirrorQuality
+                )
+            ) {
+                ForEach(MirrorQualityPreset.allCases) { preset in
+                    Text(preset.title).tag(preset)
                 }
-                .help("Recents")
-                .disabled(!model.mirrorConfigured)
             }
-            ToolbarItem(placement: .primaryAction) {
-                Picker(
-                    "Quality",
-                    selection: Binding(
-                        get: { model.mirrorQuality },
-                        set: model.setMirrorQuality
-                    )
-                ) {
-                    ForEach(MirrorQualityPreset.allCases) { preset in
-                        Text(preset.title).tag(preset)
-                    }
-                }
-                .pickerStyle(.menu)
-                .help("Mirroring quality")
-            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(width: 174)
+            .help("Mirroring quality")
         }
+        .padding(.horizontal, DesignTokens.Spacing.medium)
+        .padding(.vertical, 7)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func mirrorControlButton(
+        _ title: String,
+        systemImage: String,
+        action: String
+    ) -> some View {
+        Button {
+            model.sendMirrorKey(action)
+            dismissControlHint()
+        } label: {
+            Image(systemName: systemImage)
+                .frame(width: 18, height: 18)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.circle)
+        .controlSize(.small)
+        .help(title)
+        .accessibilityLabel(title)
+        .disabled(!model.mirrorConfigured)
     }
 
     private func dismissControlHint() {
