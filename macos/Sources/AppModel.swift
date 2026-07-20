@@ -64,6 +64,7 @@ final class AppModel: ObservableObject {
     @Published var notificationsAuthorized: Bool?
     @Published var mirrorActive = false
     @Published var mirrorConfigured = false
+    @Published private(set) var mirrorPresentationTick = 0
     @Published var mirrorStoppedReason: String?
     @Published var mirrorVideoSize: CGSize?
     @Published private(set) var mirrorQuality: MirrorQualityPreset
@@ -146,13 +147,18 @@ final class AppModel: ObservableObject {
                     frameRate: Int(frameRate.int32Value)
                 )
                 Task { @MainActor in
-                    guard self?.mirrorActive == true else { return }
-                    self?.mirrorVideoSize = CGSize(
+                    guard let self else { return }
+                    let isIncomingSession = !self.mirrorActive
+                    self.mirrorVideoSize = CGSize(
                         width: Int(width.int32Value),
                         height: Int(height.int32Value)
                     )
-                    self?.mirrorConfigured = true
-                    self?.mirrorStoppedReason = nil
+                    self.mirrorConfigured = true
+                    self.mirrorStoppedReason = nil
+                    if isIncomingSession {
+                        self.mirrorActive = true
+                        self.mirrorPresentationTick += 1
+                    }
                 }
             },
             onVideoFrame: { data, ptsUs, keyframe in
@@ -320,6 +326,7 @@ final class AppModel: ObservableObject {
         mirrorActive = true
         mirrorConfigured = false
         mirrorStoppedReason = nil
+        mirrorPresentationTick += 1
         controller.requestMirror(
             maxLongEdge: mirrorQuality.maxLongEdge,
             bitrateBps: mirrorQuality.bitrateBps
