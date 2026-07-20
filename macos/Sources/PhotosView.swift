@@ -6,7 +6,6 @@ extension MacPhoto: Identifiable {}
 
 struct PhotosView: View {
     @EnvironmentObject private var model: AppModel
-    @Binding var isPresented: Bool
     @State private var preview: MacPhoto?
 
     private let columns = [GridItem(.adaptive(minimum: 132), spacing: DesignTokens.Spacing.medium)]
@@ -20,13 +19,8 @@ struct PhotosView: View {
                     title: "Phone photos",
                     subtitle: "Recent first · originals import separately"
                 ) {
-                    HStack(spacing: DesignTokens.Spacing.small) {
-                        Button("Refresh", systemImage: "arrow.clockwise") { model.loadPhotos() }
-                            .buttonStyle(.bordered)
-                        Button("Close") { isPresented = false }
-                            .buttonStyle(.bordered)
-                            .keyboardShortcut(.cancelAction)
-                    }
+                    Button("Refresh", systemImage: "arrow.clockwise") { model.loadPhotos() }
+                        .buttonStyle(.bordered)
                 }
 
                 Group {
@@ -54,7 +48,6 @@ struct PhotosView: View {
             .padding(DesignTokens.Spacing.xLarge)
         }
         .tint(DesignTokens.ColorToken.accent)
-        .frame(minWidth: 680, minHeight: 500)
         .onAppear { model.loadPhotos() }
         .sheet(item: $preview) { photo in
             PhotoPreview(photo: photo) { preview = nil }

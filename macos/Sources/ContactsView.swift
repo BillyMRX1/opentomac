@@ -4,7 +4,6 @@ import OpentomacShared
 
 struct ContactsView: View {
     @EnvironmentObject private var model: AppModel
-    @Binding var isPresented: Bool
     @State private var query = ""
     @State private var hasSearched = false
 
@@ -17,9 +16,7 @@ struct ContactsView: View {
                     title: "Phone contacts",
                     subtitle: "Searches are sent to your phone on demand"
                 ) {
-                    Button("Close") { isPresented = false }
-                        .buttonStyle(.bordered)
-                        .keyboardShortcut(.cancelAction)
+                    EmptyView()
                 }
 
                 HStack(spacing: DesignTokens.Spacing.small) {
@@ -81,7 +78,6 @@ struct ContactsView: View {
             .padding(DesignTokens.Spacing.xLarge)
         }
         .tint(DesignTokens.ColorToken.accent)
-        .frame(minWidth: 620, minHeight: 500)
         .onDisappear {
             // Contact details are PII; don't let results outlive the sheet.
             model.contacts = []

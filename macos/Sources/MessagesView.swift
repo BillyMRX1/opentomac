@@ -4,7 +4,6 @@ import OpentomacShared
 
 struct MessagesView: View {
     @EnvironmentObject private var model: AppModel
-    @Binding var isPresented: Bool
     @State private var selectedThreadId: String?
     @State private var reply = ""
     @State private var isSending = false
@@ -20,9 +19,7 @@ struct MessagesView: View {
                     title: "Phone messages",
                     subtitle: "Conversations are loaded from your phone on demand"
                 ) {
-                    Button("Close") { isPresented = false }
-                        .buttonStyle(.bordered)
-                        .keyboardShortcut(.cancelAction)
+                    EmptyView()
                 }
 
                 PermissionBanner(
@@ -47,7 +44,6 @@ struct MessagesView: View {
             .padding(DesignTokens.Spacing.xLarge)
         }
         .tint(DesignTokens.ColorToken.accent)
-        .frame(minWidth: 820, minHeight: 600)
         .onAppear {
             let token = model.beginSmsSession()
             generation = token
