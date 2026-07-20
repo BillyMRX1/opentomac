@@ -42,6 +42,9 @@ struct DashboardView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.refreshNotificationPermission()
         }
+        .onChange(of: model.mirrorPresentationTick) {
+            openWindow(id: "mirror")
+        }
         .sheet(isPresented: $showPairing) {
             PairingSheet(isPresented: $showPairing)
                 .environmentObject(model)

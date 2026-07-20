@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -153,6 +154,11 @@ private fun OpentomacApp() {
         val snackbar = remember { SnackbarHostState() }
         var screen by remember { mutableStateOf(Screen.DASHBOARD) }
         val mirrorConsentRequested by AppRuntime.mirrorConsentRequested.collectAsStateWithLifecycle()
+
+        BackHandler(enabled = screen != Screen.DASHBOARD) {
+            AppRuntime.resetPairing()
+            screen = Screen.DASHBOARD
+        }
 
         val projectionManager = remember {
             context.getSystemService(MediaProjectionManager::class.java)
