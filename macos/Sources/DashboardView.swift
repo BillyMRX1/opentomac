@@ -6,10 +6,6 @@ struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow
     @State private var showPairing = false
-    @State private var showPhotos = false
-    @State private var showContacts = false
-    @State private var showMessages = false
-    @State private var showCalls = false
     @State private var isDropTargeted = false
 
     var body: some View {
@@ -38,31 +34,8 @@ struct DashboardView: View {
             }
         }
         .tint(DesignTokens.ColorToken.accent)
-        .frame(minWidth: 820, minHeight: 660)
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            model.refreshNotificationPermission()
-        }
-        .onChange(of: model.mirrorPresentationTick) {
-            openWindow(id: "mirror")
-        }
         .sheet(isPresented: $showPairing) {
             PairingSheet(isPresented: $showPairing)
-                .environmentObject(model)
-        }
-        .sheet(isPresented: $showPhotos) {
-            PhotosView(isPresented: $showPhotos)
-                .environmentObject(model)
-        }
-        .sheet(isPresented: $showContacts) {
-            ContactsView(isPresented: $showContacts)
-                .environmentObject(model)
-        }
-        .sheet(isPresented: $showMessages) {
-            MessagesView(isPresented: $showMessages)
-                .environmentObject(model)
-        }
-        .sheet(isPresented: $showCalls) {
-            CallsView(isPresented: $showCalls)
                 .environmentObject(model)
         }
     }
@@ -104,17 +77,13 @@ struct DashboardView: View {
 
     private var toolGrid: some View {
         LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(minimum: 72), spacing: 9), count: 6),
+            columns: Array(repeating: GridItem(.flexible(minimum: 72), spacing: 9), count: 2),
             spacing: 9
         ) {
             toolButton("Mirror", systemImage: "iphone") {
                 openWindow(id: "mirror")
                 if !model.mirrorActive { model.startMirror() }
             }
-            toolButton("Photos", systemImage: "photo.on.rectangle") { showPhotos = true }
-            toolButton("Contacts", systemImage: "person.2") { showContacts = true }
-            toolButton("Messages", systemImage: "message") { showMessages = true }
-            toolButton("Calls", systemImage: "phone") { showCalls = true }
             toolButton("Pair", systemImage: "qrcode") {
                 model.startHosting()
                 showPairing = true

@@ -7,9 +7,9 @@ struct OpentomacApp: App {
 
     var body: some Scene {
         Window("opentomac", id: "main") {
-            DashboardView()
+            RootView()
                 .environmentObject(model)
-                .frame(minWidth: 480, minHeight: 360)
+                .frame(minWidth: 1000, minHeight: 640)
         }
         .windowResizability(.contentSize)
 

@@ -4,7 +4,6 @@ import OpentomacShared
 
 struct CallsView: View {
     @EnvironmentObject private var model: AppModel
-    @Binding var isPresented: Bool
     @State private var generation: Int?
 
     var body: some View {
@@ -16,15 +15,10 @@ struct CallsView: View {
                     title: "Recent phone calls",
                     subtitle: "Loaded from your phone only while this window is open"
                 ) {
-                    HStack(spacing: DesignTokens.Spacing.small) {
-                        Button("Refresh", systemImage: "arrow.clockwise") {
-                            if let generation { model.loadCallLog(generation: generation) }
-                        }
-                        .buttonStyle(.bordered)
-                        Button("Close") { isPresented = false }
-                            .buttonStyle(.bordered)
-                            .keyboardShortcut(.cancelAction)
+                    Button("Refresh", systemImage: "arrow.clockwise") {
+                        if let generation { model.loadCallLog(generation: generation) }
                     }
+                    .buttonStyle(.bordered)
                 }
 
                 if !model.callsGranted {
@@ -66,7 +60,6 @@ struct CallsView: View {
             .padding(DesignTokens.Spacing.xLarge)
         }
         .tint(DesignTokens.ColorToken.accent)
-        .frame(minWidth: 620, minHeight: 520)
         .onAppear {
             let token = model.beginCallSession()
             generation = token
