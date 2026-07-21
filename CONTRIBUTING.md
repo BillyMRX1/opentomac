@@ -79,6 +79,7 @@ Always relaunch the built Mac app with `open path/to/Opentomac.app`. Launching t
 - Keep PRs small and focused. One logical change per PR.
 - CI must pass (`:shared:jvmTest` and the Android build run on every PR).
 - Describe what you tested and on which devices.
+- Commit types drive automated releases via release-please: `feat` bumps the minor version, `fix` bumps the patch version, and a release ships when the maintainer merges the bot's release PR.
 
 ## Reporting bugs and security issues
 
