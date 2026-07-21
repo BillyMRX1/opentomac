@@ -57,13 +57,61 @@ jobs:
       - name: Build Opentomac.app
         run: ./scripts/build-macos.sh -derivedDataPath "${{ github.workspace }}/build/ci-derived"
 
-      - name: Stage artifact
-        run: ditto -c -k --keepParent "${GITHUB_WORKSPACE}/build/ci-derived/Build/Products/Debug/Opentomac.app" "opentomac-${GITHUB_REF_NAME}-macos.zip"
+      - name: Sign (if configured)
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "${MACOS_CERT_P12}" ]; then
+            echo "Signing secrets not configured; shipping ad-hoc build."
+            exit 0
+          fi
+
+          APP_PATH="${GITHUB_WORKSPACE}/build/ci-derived/Build/Products/Debug/Opentomac.app"
+          KEYCHAIN_PATH="${RUNNER_TEMP}/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERT_PATH="${RUNNER_TEMP}/cert.p12"
+
+          echo "${MACOS_CERT_P12}" | base64 --decode -o "${CERT_PATH}"
+
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security import "${CERT_PATH}" -k "${KEYCHAIN_PATH}" -P "${MACOS_CERT_PASSWORD}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security list-keychains -d user -s "${KEYCHAIN_PATH}" $(security list-keychains -d user | sed 's/"//g')
+
+          codesign --force --deep --options runtime --sign "${MACOS_SIGNING_IDENTITY}" "${APP_PATH}"
+
+      - name: Package DMG
+        run: ./scripts/package-macos-dmg.sh "${GITHUB_WORKSPACE}/build/ci-derived/Build/Products/Debug/Opentomac.app" "opentomac-${GITHUB_REF_NAME}-macos.dmg"
+
+      - name: Notarize (if configured)
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          if [ -z "${MACOS_CERT_P12}" ]; then
+            echo "Signing secrets not configured; shipping ad-hoc build."
+            exit 0
+          fi
+
+          DMG_PATH="opentomac-${GITHUB_REF_NAME}-macos.dmg"
+
+          xcrun notarytool submit "${DMG_PATH}" \
+            --apple-id "${APPLE_ID}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --password "${APPLE_APP_PASSWORD}" \
+            --wait
+          xcrun stapler staple "${DMG_PATH}"
 
       - uses: actions/upload-artifact@v4
         with:
           name: macos-app
-          path: opentomac-${{ github.ref_name }}-macos.zip
+          path: opentomac-${{ github.ref_name }}-macos.dmg
 
   release:
     name: Create GitHub release
@@ -78,10 +126,10 @@ jobs:
         with:
           files: |
             opentomac-${{ github.ref_name }}-android.apk
-            opentomac-${{ github.ref_name }}-macos.zip
+            opentomac-${{ github.ref_name }}-macos.dmg
           generate_release_notes: true
           body: |
             Development builds, not store-signed.
 
-            **macOS**: unzip, then right-click the app and choose Open the first time (the build is ad hoc signed). Launch it normally afterwards.
+            **macOS**: download the DMG, open it, drag opentomac into Applications. If macOS reports the app "cannot be opened because it is from an unidentified developer" (releases are not yet notarized), open System Settings > Privacy & Security and click "Open Anyway" (on older macOS, right-click the app and choose Open). The app will also offer to move itself to Applications if launched from somewhere else.
             **Android**: sideload the APK (it is debug-signed). You may need to allow installs from unknown sources.
