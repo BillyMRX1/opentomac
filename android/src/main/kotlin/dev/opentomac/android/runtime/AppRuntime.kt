@@ -26,6 +26,7 @@ import dev.opentomac.android.platform.AndroidMediaSource
 import dev.opentomac.android.platform.AndroidMessagingSource
 import dev.opentomac.android.platform.AndroidNotificationSource
 import dev.opentomac.android.platform.MediaRemoteAgent
+import dev.opentomac.android.platform.NetworkMonitor
 import dev.opentomac.android.service.MirroringService
 import dev.opentomac.android.service.OpentomacControlService
 import dev.opentomac.shared.clipboard.ClipboardSync
@@ -129,6 +130,7 @@ object AppRuntime {
     private var mediaAgent: MediaAgent? = null
     private var mediaRemoteAgent: MediaRemoteAgent? = null
     private var mediaSource: MediaSource? = null
+    private var networkMonitor: NetworkMonitor? = null
     private var transportFactory: ConfigurableTransportFactory? = null
     private var pendingPairing: PendingPairing? = null
     private var pendingEndpoint: Endpoint? = null
@@ -149,6 +151,9 @@ object AppRuntime {
 
     private val mutableConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Unpaired)
     val connectionState: StateFlow<ConnectionState> = mutableConnectionState.asStateFlow()
+
+    private val mutableWifiAvailable = MutableStateFlow(false)
+    val wifiAvailable: StateFlow<Boolean> = mutableWifiAvailable.asStateFlow()
 
     private val mutablePairedDevices = MutableStateFlow<List<TrustedDevice>>(emptyList())
     val pairedDevices: StateFlow<List<TrustedDevice>> = mutablePairedDevices.asStateFlow()
@@ -221,6 +226,29 @@ object AppRuntime {
                 clock = SystemClock,
                 historyLimit = 20,
             ).also { clipboardSync = it }
+            val monitor = NetworkMonitor(appContext).also { networkMonitor = it }
+            monitor.start()
+            mutableWifiAvailable.value = monitor.wifiAvailable.value
+            ownerScope.launch {
+                monitor.wifiAvailable.collect { available ->
+                    mutableWifiAvailable.value = available
+                    if (available) {
+                        val device = mutablePairedDevices.value.firstOrNull()
+                        if (device != null && session.state.value == ConnectionState.Idle) {
+                            connect(device)
+                        }
+                    } else {
+                        val state = session.state.value
+                        if (
+                            state is ConnectionState.Connecting ||
+                            state is ConnectionState.Connected ||
+                            state is ConnectionState.Degraded
+                        ) {
+                            disconnect()
+                        }
+                    }
+                }
+            }
             receiveDir = receiveDirectory(appContext)
             // Staged outbox copies have no delivery-tied lifecycle (documented limit);
             // day-old orphans are dead weight and auto-send would otherwise grow the
@@ -367,7 +395,7 @@ object AppRuntime {
             // establishes the session.
             ownerScope.launch {
                 val device = mutablePairedDevices.value.firstOrNull() ?: return@launch
-                if (session.state.value is ConnectionState.Idle) connect(device)
+                if (session.state.value is ConnectionState.Idle && wifiAvailable.value) connect(device)
             }
         }
     }
@@ -377,6 +405,9 @@ object AppRuntime {
     }
 
     suspend fun connect(device: TrustedDevice) = runCatchingAction("Could not connect") {
+        if (!wifiAvailable.value) {
+            error("Connect to Wi-Fi first. Your Mac is only reachable on the local network.")
+        }
         withContext(Dispatchers.IO) {
             val endpointBytes = requireNotNull(kv).get("$ENDPOINT_PREFIX${device.deviceId}")
                 ?: error("No saved network address for ${device.displayName}. Pair it again.")

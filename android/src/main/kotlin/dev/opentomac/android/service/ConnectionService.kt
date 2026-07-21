@@ -18,11 +18,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 class ConnectionService : Service() {
     private val binder = LocalBinder()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var lastText: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -30,15 +32,19 @@ class ConnectionService : Service() {
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
-            buildNotification(ConnectionState.Idle),
+            buildNotification(ConnectionState.Idle, wifiAvailable = false),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
         serviceScope.launch {
             AppRuntime.initialize(applicationContext, serviceScope)
-            AppRuntime.connectionState.collect { state ->
-                getSystemService(NotificationManager::class.java)
-                    .notify(NOTIFICATION_ID, buildNotification(state))
-            }
+            combine(AppRuntime.connectionState, AppRuntime.wifiAvailable) { state, wifi -> state to wifi }
+                .collect { (state, wifi) ->
+                    val text = statusText(state, wifi)
+                    if (text == lastText) return@collect
+                    lastText = text
+                    getSystemService(NotificationManager::class.java)
+                        .notify(NOTIFICATION_ID, buildNotification(state, wifi))
+                }
         }
     }
 
@@ -64,30 +70,31 @@ class ConnectionService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    private fun buildNotification(state: ConnectionState) = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setSmallIcon(R.drawable.ic_tile_clipboard)
-        .setContentTitle("opentomac")
-        .setContentText(
-            when (state) {
-                ConnectionState.Unpaired -> "Ready to pair"
-                ConnectionState.Idle -> "Ready to connect"
-                is ConnectionState.Connecting -> "Connecting, attempt ${state.attempt}"
-                is ConnectionState.Connected -> "Connected to ${state.peer.displayName}"
-                is ConnectionState.Degraded -> "Connection limited: ${state.reason}"
-            },
-        )
-        .setOngoing(true)
-        .setOnlyAlertOnce(true)
-        .setCategory(NotificationCompat.CATEGORY_SERVICE)
-        .setContentIntent(
-            PendingIntent.getActivity(
-                this,
-                0,
-                Intent(this, MainActivity::class.java),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            ),
-        )
-        .build()
+    private fun statusText(state: ConnectionState, wifiAvailable: Boolean): String = when (state) {
+        ConnectionState.Unpaired -> "Ready to pair"
+        is ConnectionState.Connected -> "Connected to ${state.peer.displayName}"
+        is ConnectionState.Degraded -> "Connection limited: ${state.reason}"
+        ConnectionState.Idle -> if (wifiAvailable) "Ready to connect" else "Waiting for Wi-Fi"
+        is ConnectionState.Connecting -> if (wifiAvailable) "Looking for your Mac…" else "Waiting for Wi-Fi"
+    }
+
+    private fun buildNotification(state: ConnectionState, wifiAvailable: Boolean) =
+        NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_tile_clipboard)
+            .setContentTitle("opentomac")
+            .setContentText(statusText(state, wifiAvailable))
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    this,
+                    0,
+                    Intent(this, MainActivity::class.java),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                ),
+            )
+            .build()
 
     inner class LocalBinder : Binder() {
         val runtime: AppRuntime
