@@ -2,6 +2,14 @@
 
 All notable changes to opentomac are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.1](https://github.com/BillyMRX1/opentomac/compare/v0.2.0...v0.2.1) (2026-07-21)
+
+
+### Bug Fixes
+
+* **macos:** report the real version in the app bundle ([23047be](https://github.com/BillyMRX1/opentomac/commit/23047bef8510fe6aa3f812d9d428bfa68a9d3eb9))
+* **macos:** report the real version in the app bundle ([c1c7d8a](https://github.com/BillyMRX1/opentomac/commit/c1c7d8a6a667c4cb2edae45e211157b59de32212))
+
 ## [0.2.0](https://github.com/BillyMRX1/opentomac/compare/v0.1.0...v0.2.0) (2026-07-21)
 
 
