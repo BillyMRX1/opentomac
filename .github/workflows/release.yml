@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Test and build
+        run: |
+          ./gradlew :shared:jvmTest
+          ./gradlew :android:assembleDebug
+
+      - name: Stage artifact
+        run: cp android/build/outputs/apk/debug/android-debug.apk "opentomac-${GITHUB_REF_NAME}-android.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: opentomac-${{ github.ref_name }}-android.apk
+
+  macos:
+    name: Build macOS app
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build Opentomac.app
+        run: ./scripts/build-macos.sh -derivedDataPath "${{ github.workspace }}/build/ci-derived"
+
+      - name: Stage artifact
+        run: ditto -c -k --keepParent "${GITHUB_WORKSPACE}/build/ci-derived/Build/Products/Debug/Opentomac.app" "opentomac-${GITHUB_REF_NAME}-macos.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: opentomac-${{ github.ref_name }}-macos.zip
+
+  release:
+    name: Create GitHub release
+    needs: [android, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            opentomac-${{ github.ref_name }}-android.apk
+            opentomac-${{ github.ref_name }}-macos.zip
+          generate_release_notes: true
+          body: |
+            Development builds, not store-signed.
+
+            **macOS**: unzip, then right-click the app and choose Open the first time (the build is ad hoc signed). Launch it normally afterwards.
+            **Android**: sideload the APK (it is debug-signed). You may need to allow installs from unknown sources.
