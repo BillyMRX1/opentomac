@@ -70,6 +70,11 @@ A Kotlin Multiplatform `shared` module (targets: android, jvm for tests, macosAr
 - App icons: generated with `rsvg-convert` from `design-prototype/assets/opentomac-icon.svg` (blue glass two-device "bridge" mark). Mac: `macos/Assets.xcassets/AppIcon.appiconset` wired via `ASSETCATALOG_COMPILER_APPICON_NAME` in project.yml. Android: adaptive icon (`res/mipmap-*` foreground/background PNGs + `mipmap-anydpi-v26/ic_launcher*.xml`) + legacy density PNGs.
 - `design-prototype/` is the opendesign HTML/CSS mockup source. It is GITIGNORED and must NEVER be committed or modified. Reference only. Confirm with `git check-ignore design-prototype` before any commit; every UI commit this session had 0 prototype files.
 
+## Repo / release state (2026-07-21)
+
+- Remote: github.com/BillyMRX1/opentomac, PRIVATE on purpose. v0.1.0 tagged and released via GitHub Actions (CI + Release workflows both green; assets: android APK + macos zip). Release recipe: bump versions (android/build.gradle.kts versionName+versionCode, macos/project.yml MARKETING_VERSION), update CHANGELOG.md, push a v* tag.
+- DO NOT flip the repo public until the OSS-readiness blockers are resolved: docs/LinkMyMac Product Scrape.json + the two "App Reverse Engineering Requirements" files (copyright/optics; in history since the root commit, so going public cleanly means filter-repo or fresh history), tracked .claude/settings.local.json, and docs/HANDOVER.md itself (internal; contains the phone serial). README feature status is also stale (says mirroring/SMS/calls deferred).
+
 ## Known limits and open items
 
 - The test phone is a Samsung on One UI (earlier notes wrongly said Xiaomi/MIUI). One UI screenshots never reach the system clipboard (Samsung Keyboard keeps them in a private store); share-sheet or Gallery Copy are the working screenshot flows.
