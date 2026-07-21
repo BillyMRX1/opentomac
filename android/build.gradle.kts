@@ -12,8 +12,11 @@ android {
         applicationId = "dev.opentomac.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        val semver = "0.1.0" // x-release-please-version
+        versionName = semver
+        versionCode = semver.split(".").let { (major, minor, patch) ->
+            major.toInt() * 1_000_000 + minor.toInt() * 1_000 + patch.toInt()
+        }
     }
 
     buildFeatures {
