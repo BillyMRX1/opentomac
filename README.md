@@ -57,6 +57,10 @@ macOS app (links the KMP framework, generates the Xcode project, and builds):
 ./scripts/build-macos.sh
 ```
 
+### Install
+
+Releases ship a DMG for macOS and an APK for Android, see the Releases page. Unsigned macOS releases need the Privacy & Security "Open Anyway" approval until notarized releases land.
+
 ## Clean-room boundary
 
 opentomac is developed from public product pages and store listings only. It contains no decompiled code, no copied names or icons, and no proprietary protocols. Its user interface and wire protocol are independently designed.
