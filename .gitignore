@@ -12,3 +12,6 @@ macos/DerivedData/
 
 # Design reference from opendesign — never commit, reference only
 design-prototype/
+
+# Local Claude settings
+/.claude/
