@@ -2,6 +2,17 @@
 
 All notable changes to opentomac are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.0](https://github.com/BillyMRX1/opentomac/compare/v0.1.0...v0.2.0) (2026-07-21)
+
+
+### Features
+
+* **ci:** land the release-please bot on main ([aebd50f](https://github.com/BillyMRX1/opentomac/commit/aebd50fa4b80cfabca7e5c4fcd30b30c3420b443))
+* **ci:** release-please bot for automated versioning and releases ([26206ba](https://github.com/BillyMRX1/opentomac/commit/26206bae21b13eda59d49a18546c5c64eff8bc47))
+* **ci:** release-please bot for automated versioning and releases ([df60aa0](https://github.com/BillyMRX1/opentomac/commit/df60aa0e12dd0c141939171f659c7aac230c615d))
+* **macos:** DMG installer, move-to-Applications prompt, notarization-ready release ([e5eccb2](https://github.com/BillyMRX1/opentomac/commit/e5eccb28d6deb8d5329c4aa1dfa6c0c423c0f073))
+* **macos:** DMG installer, move-to-Applications prompt, notarization-ready release ([907b0f2](https://github.com/BillyMRX1/opentomac/commit/907b0f24da32a7175c4b8e4f72c30d0afdeed738))
+
 ## [0.1.0] - 2026-07-21
 
 First release. Everything below was built between 2026-07-13 and 2026-07-21 and verified on a real device pair (Samsung One UI phone, Apple Silicon Mac).
