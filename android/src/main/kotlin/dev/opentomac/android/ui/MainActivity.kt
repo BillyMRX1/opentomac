@@ -293,6 +293,7 @@ private fun DashboardScreen(
     onStopMirroring: () -> Unit,
 ) {
     val state by AppRuntime.connectionState.collectAsStateWithLifecycle()
+    val wifiAvailable by AppRuntime.wifiAvailable.collectAsStateWithLifecycle()
     val devices by AppRuntime.pairedDevices.collectAsStateWithLifecycle()
     val transfers by AppRuntime.transfers.collectAsStateWithLifecycle()
     val autoSendScreenshots by AppRuntime.autoSendScreenshots.collectAsStateWithLifecycle()
@@ -309,7 +310,7 @@ private fun DashboardScreen(
     ) {
         item {
             DashboardTopBar()
-            ConnectionCard(state = state, onPair = onPair)
+            ConnectionCard(state = state, wifiAvailable = wifiAvailable, onPair = onPair)
             Spacer(Modifier.height(14.dp))
             QuickActions(
                 onSendFile = { filePicker.launch(arrayOf("*/*")) },
@@ -376,8 +377,9 @@ private fun DashboardTopBar() {
 }
 
 @Composable
-private fun ConnectionCard(state: ConnectionState, onPair: () -> Unit) {
+private fun ConnectionCard(state: ConnectionState, wifiAvailable: Boolean, onPair: () -> Unit) {
     val connected = state is ConnectionState.Connected
+    val waitingForWifi = !wifiAvailable && state !is ConnectionState.Connected && state !is ConnectionState.Unpaired
     Surface(
         modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 198.dp),
         shape = ConnectionShape,
@@ -395,14 +397,19 @@ private fun ConnectionCard(state: ConnectionState, onPair: () -> Unit) {
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.66f),
                 )
-                Text(state.describe(), style = MaterialTheme.typography.displaySmall)
                 Text(
-                    text = when (state) {
-                        is ConnectionState.Connected ->
+                    if (waitingForWifi) "Waiting for Wi-Fi" else state.describe(),
+                    style = MaterialTheme.typography.displaySmall,
+                )
+                Text(
+                    text = when {
+                        waitingForWifi ->
+                            "Connect to Wi-Fi to reach your trusted Mac on the local network."
+                        state is ConnectionState.Connected ->
                             "Direct on this Wi-Fi. Nothing is routed through the cloud."
-                        is ConnectionState.Connecting ->
+                        state is ConnectionState.Connecting ->
                             "Looking for your trusted Mac on this local network."
-                        is ConnectionState.Degraded ->
+                        state is ConnectionState.Degraded ->
                             "The local link is active, but some features may be unavailable."
                         else ->
                             "Pair this phone with your Mac, or reconnect to a trusted Mac nearby."
@@ -1342,7 +1349,7 @@ private fun GlyphIcon(
 private fun ConnectionState.describe(): String = when (this) {
     ConnectionState.Unpaired -> "Not paired yet"
     ConnectionState.Idle -> "Ready to connect"
-    is ConnectionState.Connecting -> "Connecting (attempt $attempt)"
+    is ConnectionState.Connecting -> "Connecting…"
     is ConnectionState.Connected -> "Connected to ${peer.displayName}"
     is ConnectionState.Degraded -> "Limited: $reason"
 }
