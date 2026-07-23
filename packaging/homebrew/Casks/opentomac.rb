@@ -25,11 +25,11 @@ cask "opentomac" do
 
   caveats do
     <<~EOS
-      opentomac releases are not signed or notarized. Install with
-      --no-quarantine to skip the Gatekeeper prompt:
-        brew install --cask --no-quarantine billymrx1/opentomac/opentomac
-      If already installed without the flag, approve the app once via
-      System Settings > Privacy & Security > Open Anyway.
+      opentomac releases are not signed or notarized, so macOS Gatekeeper
+      blocks the first launch. Approve the app once via System Settings >
+      Privacy & Security > Open Anyway, or clear the quarantine flag:
+        xattr -d com.apple.quarantine /Applications/Opentomac.app
+      (Homebrew 6 removed the --no-quarantine install flag.)
     EOS
   end
 end

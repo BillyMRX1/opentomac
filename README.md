@@ -64,8 +64,11 @@ Releases ship a DMG for macOS and an APK for Android, see the Releases page. mac
 **Homebrew (recommended):**
 
 ```
-brew install --cask --no-quarantine billymrx1/opentomac/opentomac
+brew install --cask billymrx1/opentomac/opentomac
+xattr -d com.apple.quarantine /Applications/Opentomac.app
 ```
+
+The `xattr` line clears Gatekeeper's quarantine flag so the app opens without the "Open Anyway" dance. Homebrew 6 removed the old `--no-quarantine` install flag, so this is a separate step now.
 
 **Install script:** downloads the latest DMG, installs it to `/Applications`, and removes the quarantine flag. Read the script first at `scripts/install.sh` before piping it to bash.
 

@@ -7,12 +7,15 @@ in the main repo.
 ## Install
 
 ```
-brew install --cask --no-quarantine billymrx1/opentomac/opentomac
+brew install --cask billymrx1/opentomac/opentomac
+xattr -d com.apple.quarantine /Applications/Opentomac.app
 ```
 
-The `--no-quarantine` flag is required because opentomac releases are unsigned and
-un-notarized (the project does not yet pay for the Apple Developer Program). Without
-it, macOS Gatekeeper blocks the first launch.
+The `xattr` line is needed because opentomac releases are unsigned and un-notarized
+(the project does not yet pay for the Apple Developer Program): without it, macOS
+Gatekeeper blocks the first launch. Homebrew 6 removed the old `--no-quarantine`
+install flag, so the quarantine attribute must be cleared manually. Alternatively,
+approve the app once via System Settings > Privacy & Security > Open Anyway.
 
 ## Update
 

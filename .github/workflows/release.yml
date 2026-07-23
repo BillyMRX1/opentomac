@@ -173,7 +173,7 @@ jobs:
             Development builds, not store-signed.
 
             **macOS** (unsigned, un-notarized), pick one:
-            - Homebrew: `brew install --cask --no-quarantine billymrx1/opentomac/opentomac`
+            - Homebrew: `brew install --cask billymrx1/opentomac/opentomac`, then `xattr -d com.apple.quarantine /Applications/Opentomac.app` (Homebrew 6 removed `--no-quarantine`)
             - Install script: `curl -fsSL https://raw.githubusercontent.com/BillyMRX1/opentomac/main/scripts/install.sh | bash` (downloads the DMG, installs to Applications, removes the quarantine flag)
             - Manual: download the DMG, open it, drag opentomac into Applications, then approve it via System Settings > Privacy & Security > "Open Anyway" (on macOS 14, right-click the app and choose Open instead)
             **Android**: sideload the APK (it is debug-signed). You may need to allow installs from unknown sources.
