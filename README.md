@@ -57,9 +57,30 @@ macOS app (links the KMP framework, generates the Xcode project, and builds):
 ./scripts/build-macos.sh
 ```
 
-### Install
+## Install
 
-Releases ship a DMG for macOS and an APK for Android, see the Releases page. Unsigned macOS releases need the Privacy & Security "Open Anyway" approval until notarized releases land.
+Releases ship a DMG for macOS and an APK for Android, see the Releases page. macOS releases are unsigned because the project does not yet pay for the Apple Developer Program: Gatekeeper's warning is its default behavior for any unsigned app, not a malware detection. Pick whichever macOS install path you're comfortable with.
+
+**Homebrew (recommended):**
+
+```
+brew install --cask billymrx1/opentomac/opentomac
+xattr -d com.apple.quarantine /Applications/Opentomac.app
+```
+
+The `xattr` line clears Gatekeeper's quarantine flag so the app opens without the "Open Anyway" dance. Homebrew 6 removed the old `--no-quarantine` install flag, so this is a separate step now.
+
+**Install script:** downloads the latest DMG, installs it to `/Applications`, and removes the quarantine flag. Read the script first at `scripts/install.sh` before piping it to bash.
+
+```
+curl -fsSL https://raw.githubusercontent.com/BillyMRX1/opentomac/main/scripts/install.sh | bash
+```
+
+**Manual DMG:** download from the Releases page, open it, and drag opentomac into Applications. On first launch macOS will block the app; either go to System Settings > Privacy & Security and click "Open Anyway" (macOS 15+; on macOS 14, right-click the app and choose Open instead), or clear the quarantine flag yourself:
+
+```
+xattr -d com.apple.quarantine /Applications/Opentomac.app
+```
 
 ## Clean-room boundary
 

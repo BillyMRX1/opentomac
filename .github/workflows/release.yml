@@ -121,6 +121,33 @@ jobs:
             --wait
           xcrun stapler staple "${DMG_PATH}"
 
+      - name: Update Homebrew tap (if configured)
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
+            echo "Tap token not configured; skipping cask update."
+            exit 0
+          fi
+
+          DMG_PATH="opentomac-${RELEASE_TAG}-macos.dmg"
+          VERSION="${RELEASE_TAG#v}"
+          SHA256="$(shasum -a 256 "${DMG_PATH}" | awk '{print $1}')"
+
+          TAP_DIR="${RUNNER_TEMP}/homebrew-opentomac"
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/BillyMRX1/homebrew-opentomac.git" "${TAP_DIR}"
+
+          CASK_PATH="${TAP_DIR}/Casks/opentomac.rb"
+          sed -i '' -E "s/^(  version \")[^\"]*(\")\$/\1${VERSION}\2/" "${CASK_PATH}"
+          sed -i '' -E "s/^(  sha256 \")[^\"]*(\")\$/\1${SHA256}\2/" "${CASK_PATH}"
+
+          cd "${TAP_DIR}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "Casks/opentomac.rb"
+          git commit -m "opentomac ${RELEASE_TAG}"
+          git push
+
       - uses: actions/upload-artifact@v4
         with:
           name: macos-app
@@ -145,5 +172,8 @@ jobs:
           body: |
             Development builds, not store-signed.
 
-            **macOS**: download the DMG, open it, drag opentomac into Applications. If macOS reports the app "cannot be opened because it is from an unidentified developer" (releases are not yet notarized), open System Settings > Privacy & Security and click "Open Anyway" (on older macOS, right-click the app and choose Open). The app will also offer to move itself to Applications if launched from somewhere else.
+            **macOS** (unsigned, un-notarized), pick one:
+            - Homebrew: `brew install --cask billymrx1/opentomac/opentomac`, then `xattr -d com.apple.quarantine /Applications/Opentomac.app` (Homebrew 6 removed `--no-quarantine`)
+            - Install script: `curl -fsSL https://raw.githubusercontent.com/BillyMRX1/opentomac/main/scripts/install.sh | bash` (downloads the DMG, installs to Applications, removes the quarantine flag)
+            - Manual: download the DMG, open it, drag opentomac into Applications, then approve it via System Settings > Privacy & Security > "Open Anyway" (on macOS 14, right-click the app and choose Open instead)
             **Android**: sideload the APK (it is debug-signed). You may need to allow installs from unknown sources.
