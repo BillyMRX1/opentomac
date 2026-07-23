@@ -2,6 +2,19 @@
 
 All notable changes to opentomac are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.0](https://github.com/BillyMRX1/opentomac/compare/v0.2.1...v0.3.0) (2026-07-23)
+
+
+### Features
+
+* add unsigned macOS install options (Homebrew cask, install script) ([336a6f1](https://github.com/BillyMRX1/opentomac/commit/336a6f113074ffd8892556fed764bdb3a1f76e8b))
+* add unsigned macOS install options (Homebrew cask, install script) ([db90546](https://github.com/BillyMRX1/opentomac/commit/db905465ad9c3612739790e57fdfee99eb9c6669))
+
+
+### Bug Fixes
+
+* drop --no-quarantine from Homebrew docs (removed in Homebrew 6) ([9f7e552](https://github.com/BillyMRX1/opentomac/commit/9f7e55213de62bac8cdb6a42c25fe4220867ef0e))
+
 ## [0.2.1](https://github.com/BillyMRX1/opentomac/compare/v0.2.0...v0.2.1) (2026-07-21)
 
 
