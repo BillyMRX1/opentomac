@@ -33,7 +33,7 @@ Deferred behind future feasibility and policy work: USB transport, screen mirror
 
 ## Security note
 
-The design brief described the session channel as "TLS 1.3 with mutual authentication." Pinned raw-key mutual TLS is not tractable across Kotlin/Native and Android for the MVP, so opentomac instead implements an equivalent authenticated channel in common Kotlin, modeled on the Noise XX pattern: ephemeral X25519 key agreement, Ed25519 identity signatures over a domain-separated transcript, BLAKE2b key derivation, and per-frame ChaCha20-Poly1305 with counter nonces. This keeps the whole handshake in testable common code. See `docs/plans/2026-07-13-opentomac-mvp-design.md`.
+The design brief described the session channel as "TLS 1.3 with mutual authentication." Pinned raw-key mutual TLS is not tractable across Kotlin/Native and Android for the MVP, so opentomac instead implements an equivalent authenticated channel in common Kotlin, modeled on the Noise XX pattern: ephemeral X25519 key agreement, Ed25519 identity signatures over a domain-separated transcript, BLAKE2b key derivation, and per-frame ChaCha20-Poly1305 with counter nonces. This keeps the whole handshake in testable common code.
 
 ## Build
 
