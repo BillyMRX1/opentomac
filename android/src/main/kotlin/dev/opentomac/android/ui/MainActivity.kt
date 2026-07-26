@@ -3,6 +3,7 @@ package dev.opentomac.android.ui
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
@@ -93,6 +94,7 @@ import com.google.zxing.BarcodeFormat
 import com.journeyapps.barcodescanner.BarcodeCallback
 import com.journeyapps.barcodescanner.BarcodeView
 import com.journeyapps.barcodescanner.DefaultDecoderFactory
+import dev.opentomac.android.BuildConfig
 import dev.opentomac.android.runtime.AppRuntime
 import dev.opentomac.android.runtime.PairingState
 import dev.opentomac.android.service.ConnectionService
@@ -362,8 +364,20 @@ private fun DashboardScreen(
                     }
                 }
             }
+            VersionFooter()
         }
     }
+}
+
+@Composable
+private fun VersionFooter() {
+    Text(
+        text = "opentomac ${BuildConfig.VERSION_NAME}",
+        modifier = Modifier.fillMaxWidth().padding(top = 28.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+    )
 }
 
 @Composable
@@ -616,6 +630,7 @@ private fun NotificationAccessRow() {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
             },
+            hint = if (isRestrictedInstall(context)) RestrictedSettingsHint else null,
         )
         Spacer(Modifier.height(10.dp))
     }
@@ -647,8 +662,20 @@ private fun ControlAccessRow() {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
             },
+            hint = if (isRestrictedInstall(context)) RestrictedSettingsHint else null,
         )
     }
+}
+
+private const val RestrictedSettingsHint =
+    "Sideloaded builds need Settings > Apps > opentomac > Allow restricted settings first."
+
+private fun isRestrictedInstall(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+    val installer = runCatching {
+        context.packageManager.getInstallSourceInfo(context.packageName).installingPackageName
+    }.getOrNull()
+    return installer != "com.android.vending"
 }
 
 @Composable
@@ -658,6 +685,7 @@ private fun PermissionCard(
     body: String,
     shape: RoundedCornerShape,
     onClick: () -> Unit,
+    hint: String? = null,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -677,6 +705,13 @@ private fun PermissionCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (hint != null) {
+                    Text(
+                        hint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    )
+                }
             }
             FilledTonalButton(
                 onClick = onClick,

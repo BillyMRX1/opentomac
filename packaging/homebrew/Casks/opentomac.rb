@@ -1,6 +1,6 @@
 cask "opentomac" do
-  version "0.2.1"
-  sha256 "32f7a96943f5141f0908bd8be866ee2f06f3b40383d61d56800f92c160257f25"
+  version "0.3.0"
+  sha256 "a1d4e9a92a17f2e61b6a0ed0111a34cb811284c6520b24ec4241c113553b547c"
 
   url "https://github.com/BillyMRX1/opentomac/releases/download/v#{version}/opentomac-v#{version}-macos.dmg"
   name "opentomac"
