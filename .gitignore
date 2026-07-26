@@ -15,3 +15,6 @@ design-prototype/
 
 # Local Claude settings
 /.claude/
+
+# Internal working docs, plans, and research notes
+docs/
