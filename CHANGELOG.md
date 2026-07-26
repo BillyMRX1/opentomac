@@ -2,6 +2,14 @@
 
 All notable changes to opentomac are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.0](https://github.com/BillyMRX1/opentomac/compare/v0.3.0...v0.4.0) (2026-07-26)
+
+
+### Features
+
+* **android:** show app version and flag restricted-settings installs ([22a7732](https://github.com/BillyMRX1/opentomac/commit/22a77321c5603f8709a1c0dba85a4e6dd4953cee))
+* **android:** show app version and flag restricted-settings installs ([424acfc](https://github.com/BillyMRX1/opentomac/commit/424acfc083b76738c068701b53ce8989b70de4e3))
+
 ## [0.3.0](https://github.com/BillyMRX1/opentomac/compare/v0.2.1...v0.3.0) (2026-07-23)
 
 
