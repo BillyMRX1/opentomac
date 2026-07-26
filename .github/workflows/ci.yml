@@ -18,6 +18,9 @@ jobs:
           java-version: "21"
           cache: gradle
 
+      - name: Check version sync
+        run: ./scripts/check-version-sync.sh
+
       - name: Shared core tests
         run: ./gradlew :shared:jvmTest
 

@@ -82,6 +82,10 @@ curl -fsSL https://raw.githubusercontent.com/BillyMRX1/opentomac/main/scripts/in
 xattr -d com.apple.quarantine /Applications/Opentomac.app
 ```
 
+## Troubleshooting
+
+**Android: accessibility toggle is greyed out.** Android 13 and newer block accessibility and notification-listener access for apps installed from a downloaded APK (Enhanced Confirmation Mode), rather than from the Play Store. To fix it, go to Settings > Apps > opentomac, open the three-dot menu, and choose "Allow restricted settings". This has to be redone after every reinstall. Developers can do the same thing from a terminal: `adb shell appops set dev.opentomac.android ACCESS_RESTRICTED_SETTINGS allow`.
+
 ## Clean-room boundary
 
 opentomac is developed from public product pages and store listings only. It contains no decompiled code, no copied names or icons, and no proprietary protocols. Its user interface and wire protocol are independently designed.
