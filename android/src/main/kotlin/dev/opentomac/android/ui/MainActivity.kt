@@ -1,6 +1,5 @@
 package dev.opentomac.android.ui
 
-import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.media.projection.MediaProjectionConfig
@@ -139,25 +138,6 @@ private fun OpentomacApp() {
             }
         }
 
-        val permissions = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions(),
-        ) {}
-        LaunchedEffect(Unit) {
-            val wanted = buildList {
-                add(Manifest.permission.READ_CONTACTS)
-                add(Manifest.permission.READ_SMS)
-                add(Manifest.permission.SEND_SMS)
-                add(Manifest.permission.READ_CALL_LOG)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    add(Manifest.permission.POST_NOTIFICATIONS)
-                    add(Manifest.permission.READ_MEDIA_IMAGES)
-                } else {
-                    add(Manifest.permission.READ_EXTERNAL_STORAGE)
-                }
-            }
-            permissions.launch(wanted.toTypedArray())
-        }
-
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             snackbarHost = { SnackbarHost(snackbar) },
@@ -186,8 +166,9 @@ private fun OpentomacApp() {
                         onConnect = { device -> scope.launch { AppRuntime.connect(device) } },
                         onForget = { device -> scope.launch { AppRuntime.forget(device) } },
                         onSendFiles = { uris -> scope.launch { AppRuntime.enqueueSharedUris(context, uris) } },
-                        onMirror = requestMirrorConsent,
-                        onStopMirroring = AppRuntime::stopMirroring,
+                        onMirror = { requestMirrorConsent() },
+                        onStopMirroring = { AppRuntime.stopMirroring() },
+                        onOpenSettings = { tab = Tab.SETTINGS },
                     )
                     Tab.TRANSFERS -> TransfersTab(
                         modifier = Modifier.padding(padding),

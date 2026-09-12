@@ -1,12 +1,10 @@
 package dev.opentomac.android.ui
 
-import android.content.Context
-import android.content.Intent
 import android.net.Uri
-import android.os.Build
+import android.content.Context
+import androidx.core.app.NotificationManagerCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.app.NotificationManagerCompat
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -55,8 +53,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.opentomac.android.runtime.AppRuntime
 import dev.opentomac.android.service.OpentomacControlService
+import dev.opentomac.android.runtime.AppRuntime
 import dev.opentomac.android.ui.theme.Success
 import dev.opentomac.shared.pairing.TrustedDevice
 import dev.opentomac.shared.session.ConnectionState
@@ -73,11 +71,28 @@ internal fun HomeTab(
     onSendFiles: (List<Uri>) -> Unit,
     onMirror: () -> Unit,
     onStopMirroring: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val state by AppRuntime.connectionState.collectAsStateWithLifecycle()
     val wifiAvailable by AppRuntime.wifiAvailable.collectAsStateWithLifecycle()
     val devices by AppRuntime.pairedDevices.collectAsStateWithLifecycle()
     val mirroring by AppRuntime.mirroring.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var notificationAccess by remember { mutableStateOf(hasNotificationAccess(context)) }
+    var controlAccess by remember { mutableStateOf(OpentomacControlService.isEnabled(context)) }
+    val hasRequiredSetupAccess = notificationAccess && controlAccess
+
+    DisposableEffect(context, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationAccess = hasNotificationAccess(context)
+                controlAccess = OpentomacControlService.isEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -100,9 +115,16 @@ internal fun HomeTab(
                 mirrorLabel = if (mirroring) "Stop mirroring" else "Mirror to Mac",
                 mirrorEnabled = mirroring || state is ConnectionState.Connected,
             )
-            SectionTitle("Set up access")
-            NotificationAccessRow()
-            ControlAccessRow()
+            if (!hasRequiredSetupAccess) {
+                SectionTitle("Set up access")
+                PermissionCard(
+                    glyph = Glyph.Settings,
+                    title = "Finish setup",
+                    body = "Enable notification access and phone control in Settings.",
+                    shape = PermissionShape,
+                    onClick = onOpenSettings,
+                )
+            }
             SectionTitle("Paired devices")
             if (devices.isEmpty()) {
                 EmptyStateCard(
@@ -337,87 +359,8 @@ private fun ExpressiveAction(
     }
 }
 
-@Composable
-private fun NotificationAccessRow() {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var enabled by remember {
-        mutableStateOf(
-            NotificationManagerCompat
-                .getEnabledListenerPackages(context)
-                .contains(context.packageName),
-        )
-    }
-    DisposableEffect(context, lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                enabled = NotificationManagerCompat
-                    .getEnabledListenerPackages(context)
-                    .contains(context.packageName)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    if (!enabled) {
-        PermissionCard(
-            glyph = Glyph.Notification,
-            title = "Show phone notifications on Mac",
-            body = "Choose which apps can appear on your Mac.",
-            shape = PermissionShape,
-            onClick = {
-                context.startActivity(
-                    Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            },
-            hint = if (isRestrictedInstall(context)) RestrictedSettingsHint else null,
-        )
-        Spacer(Modifier.height(10.dp))
-    }
-}
-
-@Composable
-private fun ControlAccessRow() {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var enabled by remember { mutableStateOf(OpentomacControlService.isEnabled(context)) }
-    DisposableEffect(context, lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                enabled = OpentomacControlService.isEnabled(context)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    if (!enabled) {
-        PermissionCard(
-            glyph = Glyph.Control,
-            title = "Control the phone from Mac",
-            body = "Allow taps and typing during a mirror session.",
-            shape = ReversePermissionShape,
-            onClick = {
-                context.startActivity(
-                    Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            },
-            hint = if (isRestrictedInstall(context)) RestrictedSettingsHint else null,
-        )
-    }
-}
-
-private const val RestrictedSettingsHint =
-    "Sideloaded builds need Settings > Apps > opentomac > Allow restricted settings first."
-
-private fun isRestrictedInstall(context: Context): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
-    val installer = runCatching {
-        context.packageManager.getInstallSourceInfo(context.packageName).installingPackageName
-    }.getOrNull()
-    return installer != "com.android.vending"
-}
+private fun hasNotificationAccess(context: Context): Boolean =
+    NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
 
 @Composable
 private fun DeviceCard(device: TrustedDevice, onConnect: () -> Unit, onForget: () -> Unit) {
