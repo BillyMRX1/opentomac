@@ -21,9 +21,11 @@ MVP in progress. The shared core is complete and tested; the Android and macOS a
 | Android app | Builds and launches |
 | macOS app | Builds and launches |
 
-135 automated tests cover the shared core (`./gradlew :shared:jvmTest`).
+188 automated tests cover the shared core (`./gradlew :shared:jvmTest`).
 
-Deferred behind future feasibility and policy work: USB transport, screen mirroring and remote control, SMS and calls, the iPad companion, and the iPhone-to-Android drop flow. The virtual camera and microphone feature was dropped. On macOS, photo browsing is engine-complete in the shared module but not yet surfaced in the UI.
+Implemented in the current source: Android-to-Mac screen mirroring, remote control during mirror sessions, SMS and call history, and macOS photo browsing with thumbnail previews and original import. Android uses bottom navigation for Home, Transfers, and Settings. Settings provides the runtime permissions and special access setup required by these features; Android 13 and newer may also require the Restricted Settings step described below.
+
+Still deferred: USB transport, the iPad companion, and the iPhone-to-Android drop flow. The bounded clipboard history engine exists, but its Android UI remains deferred and is not exposed yet. The virtual camera and microphone feature was dropped.
 
 ## How it works
 
@@ -59,7 +61,7 @@ macOS app (links the KMP framework, generates the Xcode project, and builds):
 
 ## Install
 
-Releases ship a DMG for macOS and an APK for Android, see the Releases page. macOS releases are unsigned because the project does not yet pay for the Apple Developer Program: Gatekeeper's warning is its default behavior for any unsigned app, not a malware detection. Pick whichever macOS install path you're comfortable with.
+Releases ship a DMG for macOS and an APK for Android. See the [Releases page](https://github.com/BillyMRX1/opentomac/releases). macOS releases are unsigned because the project does not yet pay for the Apple Developer Program: Gatekeeper's warning is its default behavior for any unsigned app, not a malware detection. Pick whichever macOS install path you're comfortable with.
 
 **Homebrew (recommended):**
 
