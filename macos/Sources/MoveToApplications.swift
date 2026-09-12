@@ -1,5 +1,9 @@
 import AppKit
 
+extension Notification.Name {
+    static let opentomacOpenMainWindow = Notification.Name("dev.opentomac.openMainWindow")
+}
+
 /// Offers to copy opentomac into /Applications when launched from elsewhere (LetsMove-style).
 enum MoveToApplications {
     private static let declinedKey = "declinedMoveToApplications"
@@ -67,7 +71,76 @@ enum MoveToApplications {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var windowObservers: [NSObjectProtocol] = []
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        windowObservers = [
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard
+                    let self,
+                    let window = notification.object as? NSWindow,
+                    self.isNormalWindow(window)
+                else { return }
+                NSApp.setActivationPolicy(.regular)
+            },
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard
+                    let self,
+                    let window = notification.object as? NSWindow,
+                    self.isNormalWindow(window)
+                else { return }
+                DispatchQueue.main.async {
+                    let hasVisibleWindow = NSApp.windows.contains {
+                        $0 !== window && $0.isVisible && self.isNormalWindow($0)
+                    }
+                    NSApp.setActivationPolicy(hasVisibleWindow ? .regular : .accessory)
+                }
+            },
+        ]
+        NSApp.setActivationPolicy(.regular)
         MoveToApplications.offerMoveToApplicationsIfNeeded()
+        DispatchQueue.main.async { [weak self] in
+            self?.activateMainWindowIfPresent()
+        }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        NSApp.setActivationPolicy(.regular)
+        NotificationCenter.default.post(name: .opentomacOpenMainWindow, object: nil)
+        DispatchQueue.main.async { [weak self] in
+            self?.activateMainWindowIfPresent()
+        }
+        return true
+    }
+
+    deinit {
+        windowObservers.forEach(NotificationCenter.default.removeObserver)
+    }
+
+    private func activateMainWindowIfPresent() {
+        guard let window = NSApp.windows.first(where: { $0.title == "opentomac" }) else {
+            return
+        }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func isNormalWindow(_ window: NSWindow) -> Bool {
+        window.level == .normal && window.styleMask.contains(.titled)
     }
 }
