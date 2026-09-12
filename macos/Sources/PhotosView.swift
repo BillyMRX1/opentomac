@@ -21,6 +21,8 @@ struct PhotosView: View {
                 ) {
                     Button("Refresh", systemImage: "arrow.clockwise") { model.loadPhotos() }
                         .buttonStyle(.bordered)
+                        .disabled(!model.peerSupports(Capability.shared.PHOTO_BROWSING))
+                        .help(model.peerSupports(Capability.shared.PHOTO_BROWSING) ? "" : "Connected device needs an update for photo browsing.")
                 }
 
                 Group {

@@ -37,6 +37,8 @@ struct ContactsView: View {
 
                     Button("Search", action: search)
                         .buttonStyle(.borderedProminent)
+                        .disabled(!model.peerSupports(Capability.shared.CONTACTS))
+                        .help(model.peerSupports(Capability.shared.CONTACTS) ? "" : "Connected device needs an update for contacts.")
                 }
 
                 if !model.contactsGranted {

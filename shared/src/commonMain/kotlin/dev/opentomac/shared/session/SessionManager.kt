@@ -12,6 +12,7 @@ import dev.opentomac.shared.protocol.Envelope
 import dev.opentomac.shared.protocol.FrameTransport
 import dev.opentomac.shared.protocol.Heartbeat
 import dev.opentomac.shared.protocol.HeartbeatAck
+import dev.opentomac.shared.protocol.Hello
 import dev.opentomac.shared.protocol.Message
 import dev.opentomac.shared.protocol.ProtocolCodec
 import dev.opentomac.shared.protocol.ProtocolException
@@ -82,9 +83,18 @@ class SessionManager(
     private val clock: Clock,
     private val scope: CoroutineScope,
     private val config: SessionConfig = SessionConfig(),
+    private val deviceName: String = "opentomac",
+    private val platform: String = "unknown",
+    private val capabilities: Set<String> = emptySet(),
 ) {
     private val mutableState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
     val state: StateFlow<ConnectionState> = mutableState.asStateFlow()
+
+    private val mutablePeerCapabilities = MutableStateFlow<Set<String>>(emptySet())
+    val peerCapabilities: StateFlow<Set<String>> = mutablePeerCapabilities.asStateFlow()
+
+    /** Returns false only for a non-empty peer list that omits [capability]. */
+    fun supports(capability: String): Boolean = peerSupports(peerCapabilities.value, capability)
 
     /** Number of inbound CONTROL envelopes discarded by the token bucket. */
     var droppedEnvelopes: Long = 0
@@ -117,6 +127,7 @@ class SessionManager(
             val myGeneration = generation
             val peerSnapshot = peer.snapshot()
             desiredPeer = peerSnapshot
+            mutablePeerCapabilities.value = emptySet()
             mutableState.value = ConnectionState.Connecting(attempt = 1)
             val job = scope.launch(start = CoroutineStart.LAZY) {
                 runInitiator(peerSnapshot, myGeneration)
@@ -137,6 +148,7 @@ class SessionManager(
             generation++
             val myGeneration = generation
             desiredPeer = null
+            mutablePeerCapabilities.value = emptySet()
             openTransport = transport
             val job = scope.launch(start = CoroutineStart.LAZY) {
                 runResponder(transport, myGeneration)
@@ -167,6 +179,7 @@ class SessionManager(
             openTransport?.close()
             activeSession = null
             openTransport = null
+            mutablePeerCapabilities.value = emptySet()
             mutableState.value = ConnectionState.Idle
             connectionJob.also { connectionJob = null }
         }
@@ -248,6 +261,7 @@ class SessionManager(
                 if (generation == myGeneration) {
                     if (activeSession === session) activeSession = null
                     if (openTransport === transport) openTransport = null
+                    mutablePeerCapabilities.value = emptySet()
                     connectionJob = null
                     mutableState.value = ConnectionState.Idle
                 }
@@ -269,6 +283,11 @@ class SessionManager(
             when (val payload = envelope.payload) {
                 is Heartbeat -> session.send(ChannelId.CONTROL, HeartbeatAck(payload.sentAtMs))
                 is HeartbeatAck -> session.acknowledgeHeartbeat(payload.sentAtMs)
+                is Hello -> if (envelope.channel == ChannelId.CONTROL) {
+                    mutablePeerCapabilities.value = payload.capabilities.toSet()
+                } else {
+                    dispatch(envelope)
+                }
                 else -> {
                     if (
                         envelope.channel == ChannelId.CONTROL &&
@@ -328,18 +347,44 @@ class SessionManager(
         session: ConnectedSession,
         transport: FrameTransport,
         myGeneration: Long,
-    ): Boolean = lifecycleMutex.withLock {
-        if (generation != myGeneration) {
+    ): Boolean {
+        val installed = lifecycleMutex.withLock {
+            if (generation != myGeneration) {
+                false
+            } else {
+                activeSession = session
+                openTransport = transport
+                true
+            }
+        }
+        if (!installed) {
             session.close()
-            false
-        } else {
-            activeSession = session
-            openTransport = transport
-            mutableState.value = ConnectionState.Connected(
-                peer = session.peer.snapshot(),
-                transportLabel = transport::class.simpleName ?: "FrameTransport",
-            )
-            true
+            return false
+        }
+
+        session.send(
+            ChannelId.CONTROL,
+            Hello(
+                protocolVersion = ProtocolCodec.PROTOCOL_VERSION,
+                deviceId = identity.deviceId,
+                deviceName = deviceName,
+                platform = platform,
+                capabilities = capabilities.toList(),
+            ),
+        )
+
+        return lifecycleMutex.withLock {
+            if (generation != myGeneration || activeSession !== session) {
+                false
+            } else {
+                mutableState.value = ConnectionState.Connected(
+                    peer = session.peer.snapshot(),
+                    transportLabel = transport::class.simpleName ?: "FrameTransport",
+                )
+                true
+            }
+        }.also { current ->
+            if (!current) session.close()
         }
     }
 
@@ -352,6 +397,7 @@ class SessionManager(
             if (generation != myGeneration) return@withLock
             if (activeSession === session) activeSession = null
             if (openTransport === transport) openTransport = null
+            if (activeSession == null) mutablePeerCapabilities.value = emptySet()
         }
     }
 
@@ -366,6 +412,7 @@ class SessionManager(
             openTransport?.close()
             activeSession = null
             openTransport = null
+            mutablePeerCapabilities.value = emptySet()
             mutableState.value = ConnectionState.Idle
             connectionJob.also { connectionJob = null }
         }

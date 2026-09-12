@@ -51,6 +51,8 @@ struct RootView: View {
                 ForEach(AppSection.allCases) { section in
                     Label(section.title, systemImage: section.systemImage)
                         .tag(section)
+                        .disabled(sectionCapability(section).map { !model.peerSupports($0) } ?? false)
+                        .help(sectionCapability(section).map { model.peerSupports($0) ? "" : "Connected device needs an update for \(section.title.lowercased())." } ?? "")
                 }
             }
             .listStyle(.sidebar)
@@ -80,6 +82,16 @@ struct RootView: View {
             MessagesView()
         case .calls:
             CallsView()
+        }
+    }
+
+    private func sectionCapability(_ section: AppSection) -> String? {
+        switch section {
+        case .dashboard: return nil
+        case .photos: return Capability.shared.PHOTO_BROWSING
+        case .contacts: return Capability.shared.CONTACTS
+        case .messages: return Capability.shared.MESSAGING
+        case .calls: return Capability.shared.CALLS
         }
     }
 }

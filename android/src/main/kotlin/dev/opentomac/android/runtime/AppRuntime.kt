@@ -64,6 +64,7 @@ import dev.opentomac.shared.protocol.RevokeDevice
 import dev.opentomac.shared.protocol.ScreenshotTaken
 import dev.opentomac.shared.protocol.ThumbnailRequest
 import dev.opentomac.shared.session.ConnectionState
+import dev.opentomac.shared.session.Capability
 import dev.opentomac.shared.session.SessionManager
 import dev.opentomac.shared.session.TransportFactory
 import dev.opentomac.shared.transfer.OfferDecision
@@ -152,6 +153,9 @@ object AppRuntime {
     private val mutableConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Unpaired)
     val connectionState: StateFlow<ConnectionState> = mutableConnectionState.asStateFlow()
 
+    private val mutablePeerCapabilities = MutableStateFlow<Set<String>>(emptySet())
+    val peerCapabilities: StateFlow<Set<String>> = mutablePeerCapabilities.asStateFlow()
+
     private val mutableWifiAvailable = MutableStateFlow(false)
     val wifiAvailable: StateFlow<Boolean> = mutableWifiAvailable.asStateFlow()
 
@@ -209,7 +213,13 @@ object AppRuntime {
                 transportFactory = configurableFactory,
                 clock = SystemClock,
                 scope = ownerScope,
+                deviceName = Build.MODEL,
+                platform = "android",
+                capabilities = Capability.all,
             ).also { sessionManager = it }
+            ownerScope.launch {
+                session.peerCapabilities.collect { mutablePeerCapabilities.value = it }
+            }
             val localClipboard = AndroidClipboard(appContext).also { clipboard = it }
             val sync = ClipboardSync(
                 deviceId = identity.deviceId,
@@ -434,6 +444,10 @@ object AppRuntime {
             mutableNotice.value = "Not connected to a device"
             return
         }
+        if (!peerSupports(Capability.SCREEN_MIRRORING)) {
+            mutableNotice.value = "Connected peer needs an update for screen mirroring"
+            return
+        }
         if (!tryAcquireCapture(CaptureMode.MIRROR)) {
             mutableNotice.value = "Screen mirroring is already starting or active"
             scope?.launch { sendStopWithTimeout(ChannelId.EVENT, MirrorStop("Another capture is active")) }
@@ -469,6 +483,10 @@ object AppRuntime {
         maxLongEdge: Int = DEFAULT_MIRROR_MAX_LONG_EDGE,
         bitrateBps: Int = DEFAULT_MIRROR_BITRATE_BPS,
     ) {
+        if (!peerSupports(Capability.SCREEN_MIRRORING)) {
+            mutableNotice.value = "Connected peer needs an update for screen mirroring"
+            return
+        }
         if (connectionState.value is ConnectionState.Connected && captureState.get().mode == CaptureMode.NONE) {
             pendingMirrorQuality = MirrorQuality(maxLongEdge, bitrateBps)
             mutableMirrorConsentRequested.value = true
@@ -626,6 +644,10 @@ object AppRuntime {
     }
 
     suspend fun sendClipboard(): Boolean {
+        if (!peerSupports(Capability.CLIPBOARD)) {
+            mutableNotice.value = "Connected peer needs an update for clipboard sharing"
+            return false
+        }
         val item = clipboard?.readCurrent()
         if (item == null) {
             mutableNotice.value = "Clipboard is empty or unreadable"
@@ -635,6 +657,10 @@ object AppRuntime {
     }
 
     suspend fun sendText(text: String): Boolean {
+        if (!peerSupports(Capability.CLIPBOARD)) {
+            mutableNotice.value = "Connected peer needs an update for clipboard sharing"
+            return false
+        }
         val item = clipboard?.textItem(text)
         if (item == null) {
             mutableNotice.value = "No text to send"
@@ -645,6 +671,10 @@ object AppRuntime {
     }
 
     suspend fun openUrlOnPeer(url: String): Boolean {
+        if (!peerSupports(Capability.OPEN_URL)) {
+            mutableNotice.value = "Connected peer needs an update to open links"
+            return false
+        }
         val normalized = webUriOrNull(url)?.toString()
         if (normalized == null) {
             mutableNotice.value = "No valid web link to send"
@@ -702,6 +732,10 @@ object AppRuntime {
 
     suspend fun enqueueSharedUris(context: Context, uris: List<Uri>): Int {
         if (uris.isEmpty()) return 0
+        if (!peerSupports(Capability.FILE_TRANSFER)) {
+            mutableNotice.value = "Connected peer needs an update for file transfers"
+            return 0
+        }
         val sources = withContext(Dispatchers.IO) { uris.mapNotNull { stageUri(context, it) } }
         if (sources.isEmpty()) return 0
         if (connectionState.value is ConnectionState.Connected) {
@@ -730,6 +764,7 @@ object AppRuntime {
 
     fun shutdown() {
         initialized = false
+        mutablePeerCapabilities.value = emptySet()
         if (captureState.get().mode == CaptureMode.MIRROR) {
             beginMirroringCleanup()
             if (mirroringServiceStopper?.invoke("App shutting down", true) == null) {
@@ -1146,6 +1181,8 @@ object AppRuntime {
         if (sessionManager?.state?.value !is ConnectionState.Connected) return
         runCatching { requireNotNull(sessionManager).send(channel, message) }
     }
+
+    fun peerSupports(capability: String): Boolean = sessionManager?.supports(capability) ?: true
 
     private suspend fun flushQueuedOffers() {
         val offers = synchronized(queuedOffers) {

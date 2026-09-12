@@ -292,6 +292,8 @@ struct MirrorWindow: View {
                         Button("Retry") { model.startMirror() }
                             .buttonStyle(.borderedProminent)
                             .keyboardShortcut(.defaultAction)
+                            .disabled(!model.peerSupports(Capability.shared.SCREEN_MIRRORING))
+                            .help(model.peerSupports(Capability.shared.SCREEN_MIRRORING) ? "" : "Connected device needs an update for screen mirroring.")
                     }
                     .padding(DesignTokens.Spacing.large)
                     .frame(minWidth: 240)
@@ -402,7 +404,7 @@ struct MirrorWindow: View {
         .controlSize(.small)
         .help(title)
         .accessibilityLabel(title)
-        .disabled(!model.mirrorConfigured)
+        .disabled(!model.mirrorConfigured || !model.peerSupports(Capability.shared.REMOTE_INPUT))
     }
 
     private func dismissControlHint() {

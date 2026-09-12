@@ -34,6 +34,7 @@ import dev.opentomac.shared.protocol.ScreenshotTaken
 import dev.opentomac.shared.protocol.VideoConfig
 import dev.opentomac.shared.protocol.VideoFrame
 import dev.opentomac.shared.session.ConnectionState
+import dev.opentomac.shared.session.Capability
 import dev.opentomac.shared.session.SessionLog
 import dev.opentomac.shared.session.SessionManager
 import dev.opentomac.shared.session.TransportFactory
@@ -51,6 +52,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlin.concurrent.Volatile
 import kotlin.io.encoding.Base64
@@ -137,6 +139,7 @@ class MacController(
     private val onVideoConfig: (Int, Int, NSData, NSData, Int) -> Unit,
     private val onVideoFrame: (NSData, Long, Boolean) -> Unit,
     private val onMirrorStopped: (String) -> Unit,
+    private val onPeerCapabilities: (List<String>) -> Unit,
 ) {
     private val collectedJobs = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -182,7 +185,13 @@ class MacController(
                 transportFactory = transportFactory,
                 clock = SystemClock,
                 scope = scope,
+                deviceName = NSHost.currentHost().localizedName ?: "Mac",
+                platform = "macos",
+                capabilities = Capability.all,
             )
+            scope.launch {
+                sessionManager.peerCapabilities.collect { onPeerCapabilities(it.toList()) }
+            }
             clipboard = MacClipboard()
             clipboardSync = ClipboardSync(
                 deviceId = identity.deviceId,

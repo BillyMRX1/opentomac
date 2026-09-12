@@ -57,7 +57,9 @@ import dev.opentomac.android.service.OpentomacControlService
 import dev.opentomac.android.runtime.AppRuntime
 import dev.opentomac.android.ui.theme.Success
 import dev.opentomac.shared.pairing.TrustedDevice
+import dev.opentomac.shared.session.Capability
 import dev.opentomac.shared.session.ConnectionState
+import dev.opentomac.shared.session.peerSupports
 
 /** Home tab: connection status, quick actions, access setup, and paired devices. */
 @Composable
@@ -77,6 +79,7 @@ internal fun HomeTab(
     val wifiAvailable by AppRuntime.wifiAvailable.collectAsStateWithLifecycle()
     val devices by AppRuntime.pairedDevices.collectAsStateWithLifecycle()
     val mirroring by AppRuntime.mirroring.collectAsStateWithLifecycle()
+    val peerCapabilities by AppRuntime.peerCapabilities.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var notificationAccess by remember { mutableStateOf(hasNotificationAccess(context)) }
@@ -114,7 +117,25 @@ internal fun HomeTab(
                 onMirror = if (mirroring) onStopMirroring else onMirror,
                 mirrorLabel = if (mirroring) "Stop mirroring" else "Mirror to Mac",
                 mirrorEnabled = mirroring || state is ConnectionState.Connected,
+                fileEnabled = peerSupports(peerCapabilities, Capability.FILE_TRANSFER),
+                clipboardEnabled = peerSupports(peerCapabilities, Capability.CLIPBOARD),
+                mirrorCapabilityEnabled = peerSupports(peerCapabilities, Capability.SCREEN_MIRRORING),
             )
+            if (state is ConnectionState.Connected) {
+                val unavailable = buildList {
+                    if (!peerSupports(peerCapabilities, Capability.FILE_TRANSFER)) add("file transfers")
+                    if (!peerSupports(peerCapabilities, Capability.CLIPBOARD)) add("clipboard")
+                    if (!peerSupports(peerCapabilities, Capability.SCREEN_MIRRORING)) add("screen mirroring")
+                }
+                if (unavailable.isNotEmpty()) {
+                    Text(
+                        "Unavailable: ${unavailable.joinToString()}. Update the connected device to enable them.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
             if (!hasRequiredSetupAccess) {
                 SectionTitle("Set up access")
                 PermissionCard(
@@ -259,6 +280,9 @@ private fun QuickActions(
     onMirror: () -> Unit,
     mirrorLabel: String,
     mirrorEnabled: Boolean,
+    fileEnabled: Boolean,
+    clipboardEnabled: Boolean,
+    mirrorCapabilityEnabled: Boolean,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
@@ -269,6 +293,7 @@ private fun QuickActions(
                 label = "Send file",
                 glyph = Glyph.Upload,
                 onClick = onSendFile,
+                enabled = fileEnabled,
                 modifier = Modifier.weight(1.12f).fillMaxHeight(),
                 shape = PrimaryActionShape,
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -282,6 +307,7 @@ private fun QuickActions(
                     label = "Send clipboard",
                     glyph = Glyph.Clipboard,
                     onClick = onSendClipboard,
+                    enabled = clipboardEnabled,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     shape = ClipboardActionShape,
                 )
@@ -298,7 +324,7 @@ private fun QuickActions(
             label = mirrorLabel,
             glyph = Glyph.Mirror,
             onClick = onMirror,
-            enabled = mirrorEnabled,
+            enabled = mirrorEnabled && mirrorCapabilityEnabled,
             modifier = Modifier.fillMaxWidth().height(70.dp),
             shape = WideActionShape,
             horizontal = true,
