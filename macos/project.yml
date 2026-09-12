@@ -30,7 +30,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: "14.0"
-        LSUIElement: false
+        LSUIElement: true
         NSLocalNetworkUsageDescription: opentomac connects directly to your paired Android device over the local network.
         NSBonjourServices:
           - _opentomac._tcp
