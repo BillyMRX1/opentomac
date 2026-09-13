@@ -637,6 +637,7 @@ data class NotificationPosted(
     @ProtoNumber(6) val postedAt: Long,
     @ProtoNumber(7) val iconPng: ByteArray? = null,
     @ProtoNumber(8) val actions: List<NotifAction> = emptyList(),
+    @ProtoNumber(9) val dismissible: Boolean = false,
 ) : Message {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -653,7 +654,8 @@ data class NotificationPosted(
             body == other.body &&
             postedAt == other.postedAt &&
             iconsEqual &&
-            actions == other.actions
+            actions == other.actions &&
+            dismissible == other.dismissible
     }
 
     override fun hashCode(): Int {
@@ -665,6 +667,7 @@ data class NotificationPosted(
         result = 31 * result + postedAt.hashCode()
         result = 31 * result + (iconPng?.contentHashCode() ?: 0)
         result = 31 * result + actions.hashCode()
+        result = 31 * result + dismissible.hashCode()
         return result
     }
 }
@@ -672,6 +675,12 @@ data class NotificationPosted(
 @Serializable
 @SerialName("notification_dismissed")
 data class NotificationDismissed(
+    @ProtoNumber(1) val key: String,
+) : Message
+
+@Serializable
+@SerialName("notification_dismiss_request")
+data class NotificationDismissRequest(
     @ProtoNumber(1) val key: String,
 ) : Message
 

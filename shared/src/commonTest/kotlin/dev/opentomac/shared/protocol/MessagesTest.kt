@@ -460,6 +460,7 @@ class MessagesTest {
                 NotifAction(index = 0, title = "Reply", isRemoteInput = true),
                 NotifAction(index = 1, title = "Mark read", isRemoteInput = false),
             ),
+            dismissible = true,
         )
         val decoded = assertIs<NotificationPosted>(roundTrip(msg, channel = ChannelId.EVENT))
         assertContentEquals(msg.iconPng, decoded.iconPng)
@@ -486,6 +487,12 @@ class MessagesTest {
     @Test
     fun notificationDismissedRoundTrip() {
         val msg = NotificationDismissed(key = "0|com.example|1|null|10001")
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+    }
+
+    @Test
+    fun notificationDismissRequestRoundTrip() {
+        val msg = NotificationDismissRequest(key = "0|com.example|1|null|10001")
         assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
     }
 

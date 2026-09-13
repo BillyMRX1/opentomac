@@ -4,6 +4,7 @@ import dev.opentomac.shared.protocol.FilterUpdate
 import dev.opentomac.shared.protocol.Message
 import dev.opentomac.shared.protocol.NotificationAction
 import dev.opentomac.shared.protocol.NotificationDismissed
+import dev.opentomac.shared.protocol.NotificationDismissRequest
 import dev.opentomac.shared.protocol.NotificationPosted
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -24,6 +25,8 @@ interface NotificationSource {
     fun events(): Flow<NotificationEvent>
 
     suspend fun performAction(key: String, actionIndex: Int, remoteInputText: String?)
+
+    suspend fun performDismissal(key: String)
 }
 
 interface NotificationPresenter {
@@ -72,6 +75,8 @@ class NotificationAgent(
                 actionIndex = msg.actionIndex,
                 remoteInputText = msg.remoteInputText,
             )
+
+            is NotificationDismissRequest -> source.performDismissal(msg.key)
 
             else -> Unit
         }

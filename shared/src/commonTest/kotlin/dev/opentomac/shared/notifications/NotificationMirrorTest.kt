@@ -7,6 +7,7 @@ import dev.opentomac.shared.protocol.Message
 import dev.opentomac.shared.protocol.NotifAction
 import dev.opentomac.shared.protocol.NotificationAction
 import dev.opentomac.shared.protocol.NotificationDismissed
+import dev.opentomac.shared.protocol.NotificationDismissRequest
 import dev.opentomac.shared.protocol.NotificationPosted
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -87,6 +88,16 @@ class NotificationMirrorTest {
     }
 
     @Test
+    fun agentDelegatesDismissalRequestToTheSource() = runTest {
+        val source = FakeNotificationSource()
+        val agent = NotificationAgent(source, {}, ownPackageId = "dev.opentomac")
+
+        agent.onMessage(NotificationDismissRequest("notification-key"))
+
+        assertEquals(listOf("notification-key"), source.dismissals)
+    }
+
+    @Test
     fun companionPresentsWithdrawsAndSendsControlMessages() = runTest {
         val presenter = FakeNotificationPresenter()
         val sent = mutableListOf<Message>()
@@ -135,11 +146,16 @@ private data class ActionCall(
 private class FakeNotificationSource : NotificationSource {
     private val eventFlow = MutableSharedFlow<NotificationEvent>(extraBufferCapacity = 16)
     val actions = mutableListOf<ActionCall>()
+    val dismissals = mutableListOf<String>()
 
     override fun events(): Flow<NotificationEvent> = eventFlow
 
     override suspend fun performAction(key: String, actionIndex: Int, remoteInputText: String?) {
         actions += ActionCall(key, actionIndex, remoteInputText)
+    }
+
+    override suspend fun performDismissal(key: String) {
+        dismissals += key
     }
 
     suspend fun emit(event: NotificationEvent) {
