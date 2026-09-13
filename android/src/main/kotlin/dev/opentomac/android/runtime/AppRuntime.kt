@@ -29,6 +29,7 @@ import dev.opentomac.android.platform.AndroidMessagingSource
 import dev.opentomac.android.platform.AndroidNotificationSource
 import dev.opentomac.android.platform.MediaRemoteAgent
 import dev.opentomac.android.platform.NetworkMonitor
+import dev.opentomac.android.platform.RingController
 import dev.opentomac.android.service.MirroringService
 import dev.opentomac.android.service.OpentomacControlService
 import dev.opentomac.shared.clipboard.ClipboardSync
@@ -64,6 +65,8 @@ import dev.opentomac.shared.protocol.NotificationDismissed
 import dev.opentomac.shared.protocol.NotificationPosted
 import dev.opentomac.shared.protocol.OpenUrl
 import dev.opentomac.shared.protocol.RevokeDevice
+import dev.opentomac.shared.protocol.RingCommand
+import dev.opentomac.shared.protocol.RingStatus
 import dev.opentomac.shared.protocol.ScreenshotTaken
 import dev.opentomac.shared.protocol.ThumbnailRequest
 import dev.opentomac.shared.session.ConnectionState
@@ -135,6 +138,7 @@ object AppRuntime {
     private var mediaRemoteAgent: MediaRemoteAgent? = null
     private var mediaSource: MediaSource? = null
     private var networkMonitor: NetworkMonitor? = null
+    private var ringController: RingController? = null
     private var transportFactory: ConfigurableTransportFactory? = null
     private var pendingPairing: PendingPairing? = null
     private var pendingEndpoint: Endpoint? = null
@@ -312,6 +316,13 @@ object AppRuntime {
                 scope = ownerScope,
                 send = { safeSend(ChannelId.EVENT, it) },
             ).also { mediaRemoteAgent = it }
+            ringController = RingController(
+                context = appContext,
+                scope = ownerScope,
+                sendStatus = { ringing, error ->
+                    safeSend(ChannelId.EVENT, RingStatus(ringing, error))
+                },
+            )
             val androidMedia = AndroidMediaSource(appContext).also { mediaSource = it }
             val media = MediaAgent(
                 source = androidMedia,
@@ -370,6 +381,11 @@ object AppRuntime {
                             .cancel(MIRROR_REQUEST_NOTIFICATION_ID)
                         stopMirroringAndWait(message.reason, notifyPeer = false)
                     }
+                    is RingCommand -> if (message.start) {
+                        ringController?.start()
+                    } else {
+                        ringController?.stopAndReport()
+                    }
                     is InputTap,
                     is InputSwipe,
                     is InputKey,
@@ -417,6 +433,7 @@ object AppRuntime {
                             localClipboard.readCurrent()?.let { sync.trySend(it) }
                         }
                     } else {
+                        ringController?.let { if (it.isRinging) ownerScope.launch { it.stopAndReport() } }
                         mutableMirrorConsentRequested.value = false
                         if (captureState.get().mode == CaptureMode.MIRROR) {
                             stopMirroringAndWait("Connection lost", notifyPeer = false)
@@ -809,6 +826,8 @@ object AppRuntime {
         clipboardSync?.stop()
         notificationAgent?.stop()
         mediaRemoteAgent?.stop()
+        ringController?.shutdown()
+        ringController = null
         hostServer?.close()
         scope?.cancel()
         mutableReady.value = false

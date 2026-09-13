@@ -15,6 +15,11 @@ struct DashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DesignTokens.Spacing.medium + 2) {
                     hero
+                    if let ringError = model.ringError {
+                        Text("Could not ring phone: \(ringError)")
+                            .font(DesignTokens.TypeStyle.meta)
+                            .foregroundStyle(DesignTokens.ColorToken.danger)
+                    }
                     batteryStatus
                     notificationStatus
                     nowPlayingCard
@@ -87,6 +92,15 @@ struct DashboardView: View {
             }
             .disabled(!model.peerSupports(Capability.shared.SCREEN_MIRRORING))
             .help(model.peerSupports(Capability.shared.SCREEN_MIRRORING) ? "" : "Connected device needs an update for screen mirroring.")
+            toolButton(model.phoneRinging ? "Stop Ringing" : "Ring Phone", systemImage: model.phoneRinging ? "bell.slash" : "bell.fill") {
+                model.toggleRingPhone()
+            }
+            .disabled(!isConnected || !model.peerSupports(Capability.shared.RING))
+            .help(
+                model.peerSupports(Capability.shared.RING)
+                    ? "Uses the phone's alarm volume. Silent and Do Not Disturb behavior follows Android settings."
+                    : "Connected device needs an update for phone ringing."
+            )
             toolButton("Pair", systemImage: "qrcode") {
                 model.startHosting()
                 showPairing = true

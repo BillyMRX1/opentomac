@@ -31,6 +31,8 @@ import dev.opentomac.shared.protocol.MirrorStop
 import dev.opentomac.shared.protocol.NotificationPosted
 import dev.opentomac.shared.protocol.OpenUrl
 import dev.opentomac.shared.protocol.RevokeDevice
+import dev.opentomac.shared.protocol.RingCommand
+import dev.opentomac.shared.protocol.RingStatus
 import dev.opentomac.shared.protocol.ScreenshotTaken
 import dev.opentomac.shared.protocol.VideoConfig
 import dev.opentomac.shared.protocol.VideoFrame
@@ -148,6 +150,7 @@ class MacController(
     private val onMirrorStopped: (String) -> Unit,
     private val onPeerCapabilities: (List<String>) -> Unit,
     private val onBattery: (MacBatteryState?) -> Unit,
+    private val onRingStatus: (Boolean, String) -> Unit,
 ) {
     private val collectedJobs = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -247,6 +250,7 @@ class MacController(
                     is BatteryStatus -> onBattery(
                         MacBatteryState(message.percentage.coerceIn(0, 100), message.charging, message.sampledAtMs),
                     )
+                    is RingStatus -> onRingStatus(message.ringing, message.error)
                     is OpenUrl -> normalizedWebUrl(message.url)?.let(onOpenUrl)
                     is ScreenshotTaken -> onScreenshotTaken(message.mediaId, message.name)
                     is MirrorStop -> {
@@ -303,7 +307,10 @@ class MacController(
                         mirrorLive = false
                         onMirrorStopped("disconnected")
                     }
-                    if (state !is ConnectionState.Connected) onBattery(null)
+                    if (state !is ConnectionState.Connected) {
+                        onBattery(null)
+                        onRingStatus(false, "")
+                    }
                     onState(state.describe())
                 }
             }
@@ -473,6 +480,10 @@ class MacController(
 
     fun mediaControl(command: String) {
         scope.launch { safeSend(ChannelId.EVENT, MediaControl(command)) }
+    }
+
+    fun ringPhone(start: Boolean) {
+        scope.launch { safeSend(ChannelId.EVENT, RingCommand(start)) }
     }
 
     /** Asks the connected Android device to begin a MediaProjection mirror session. */

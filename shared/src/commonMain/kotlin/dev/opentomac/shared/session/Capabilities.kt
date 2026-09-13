@@ -15,6 +15,7 @@ object Capability {
     const val REMOTE_INPUT = "remote.input"
     const val OPEN_URL = "url.open"
     const val BATTERY = "device.battery"
+    const val RING = "device.ring"
 
     val all = setOf(
         CLIPBOARD,
@@ -30,6 +31,7 @@ object Capability {
         REMOTE_INPUT,
         OPEN_URL,
         BATTERY,
+        RING,
     )
 }
 
