@@ -15,6 +15,7 @@ struct DashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DesignTokens.Spacing.medium + 2) {
                     hero
+                    batteryStatus
                     notificationStatus
                     nowPlayingCard
 
@@ -127,6 +128,22 @@ struct DashboardView: View {
             Button("Notification Settings") { model.openNotificationSettings() }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+        }
+    }
+
+    private var batteryStatus: some View {
+        Group {
+            if model.peerCapabilities.contains(Capability.shared.BATTERY) {
+                HStack(spacing: DesignTokens.Spacing.small) {
+                    Image(systemName: "battery.75")
+                    Text(model.batteryState?.formatted ?? "Battery unavailable")
+                        .font(DesignTokens.TypeStyle.body)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, DesignTokens.Spacing.medium)
+                .padding(.vertical, DesignTokens.Spacing.small)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.medium, style: .continuous))
+            }
         }
     }
 

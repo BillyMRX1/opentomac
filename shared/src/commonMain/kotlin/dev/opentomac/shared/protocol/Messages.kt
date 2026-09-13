@@ -159,6 +159,14 @@ data class HeartbeatAck(
     @ProtoNumber(1) val sentAtMs: Long,
 ) : Message
 
+@Serializable
+@SerialName("battery_status")
+data class BatteryStatus(
+    @ProtoNumber(1) val percentage: Int,
+    @ProtoNumber(2) val charging: Boolean,
+    @ProtoNumber(3) val sampledAtMs: Long,
+) : Message
+
 // --- Clipboard ---
 
 @Serializable

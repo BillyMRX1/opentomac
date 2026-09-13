@@ -3,9 +3,11 @@ package dev.opentomac.android.runtime
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.database.ContentObserver
 import android.net.Uri
 import android.os.Build
@@ -44,6 +46,7 @@ import dev.opentomac.shared.pairing.SystemClock
 import dev.opentomac.shared.pairing.TrustedDevice
 import dev.opentomac.shared.protocol.ChannelId
 import dev.opentomac.shared.protocol.ClipboardItemMsg
+import dev.opentomac.shared.protocol.BatteryStatus
 import dev.opentomac.shared.protocol.DuplicatePolicy
 import dev.opentomac.shared.protocol.FileMeta
 import dev.opentomac.shared.protocol.InputKey
@@ -141,6 +144,10 @@ object AppRuntime {
     private val controlAccessNoticeShown = AtomicBoolean(false)
     private val mirrorInputState = AtomicReference(MirrorInputState())
     private var screenshotObserver: ContentObserver? = null
+    private var batteryReceiver: BroadcastReceiver? = null
+    private val batteryTracker = BatteryReadingTracker()
+    @Volatile
+    private var latestBattery: BatteryReading? = null
     private var screenshotDebounceJob: Job? = null
     private var lastSeenImageId = 0L
     @Volatile
@@ -331,6 +338,27 @@ object AppRuntime {
                 },
             ).also { mediaAgent = it }
 
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) {
+                    val reading = BatteryReading.fromIntent(intent, System.currentTimeMillis()) ?: return
+                    latestBattery = reading
+                    if (batteryTracker.update(reading)) {
+                        ownerScope.launch { sendBatteryIfSupported(reading) }
+                    }
+                }
+            }
+            batteryReceiver = receiver
+            val initialBattery = appContext.registerReceiver(
+                receiver,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+            )
+            initialBattery?.let {
+                BatteryReading.fromIntent(it, System.currentTimeMillis())?.let { reading ->
+                    latestBattery = reading
+                    batteryTracker.update(reading)
+                }
+            }
+
             session.registerHandler(ChannelId.EVENT) { envelope ->
                 when (val message = envelope.payload) {
                     is ClipboardItemMsg -> sync.onRemoteItem(message)
@@ -380,6 +408,7 @@ object AppRuntime {
                         // replay watermark or its items are silently discarded.
                         sync.onSessionEstablished()
                         mediaRemote.pushCurrentState()
+                        latestBattery?.let { sendBatteryIfSupported(it) }
                         flushQueuedOffers()
                         // The resume-time clipboard read races reconnection: if it lost,
                         // its item was dropped as unsendable. Re-drive it now that the
@@ -773,6 +802,10 @@ object AppRuntime {
             }
         }
         stopScreenshotObserver()
+        batteryReceiver?.let { receiver ->
+            appContext?.unregisterReceiver(receiver)
+            batteryReceiver = null
+        }
         clipboardSync?.stop()
         notificationAgent?.stop()
         mediaRemoteAgent?.stop()
@@ -1180,6 +1213,15 @@ object AppRuntime {
     private suspend fun safeSend(channel: ChannelId, message: Message) {
         if (sessionManager?.state?.value !is ConnectionState.Connected) return
         runCatching { requireNotNull(sessionManager).send(channel, message) }
+    }
+
+    private suspend fun sendBatteryIfSupported(reading: BatteryReading) {
+        val session = sessionManager ?: return
+        if (session.state.value !is ConnectionState.Connected || !session.supports(Capability.BATTERY)) return
+        session.send(
+            ChannelId.EVENT,
+            BatteryStatus(reading.percentage, reading.charging, reading.sampledAtMs),
+        )
     }
 
     fun peerSupports(capability: String): Boolean = sessionManager?.supports(capability) ?: true

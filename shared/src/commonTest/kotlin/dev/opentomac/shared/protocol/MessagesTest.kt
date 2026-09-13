@@ -91,6 +91,12 @@ class MessagesTest {
     }
 
     @Test
+    fun batteryStatusRoundTrip() {
+        val msg = BatteryStatus(percentage = 87, charging = true, sampledAtMs = 1_720_000_000_789)
+        assertEquals(msg, roundTrip(msg, channel = ChannelId.EVENT))
+    }
+
+    @Test
     fun clipboardItemMsgRoundTrip() {
         val msg = ClipboardItemMsg(
             itemId = "clip-1",
