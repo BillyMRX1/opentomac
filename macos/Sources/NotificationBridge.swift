@@ -7,18 +7,23 @@ import UserNotifications
 @MainActor
 final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
     static let replyCategory = "opentomac.reply"
+    static let dismissCategory = "opentomac.dismiss"
+    static let replyDismissCategory = "opentomac.reply-dismiss"
     static let screenshotCategory = "opentomac.screenshot"
     private nonisolated static let screenshotSendAction = "opentomac.screenshot.send"
     private let center = UNUserNotificationCenter.current()
     private var onReply: ((String, Int, String) -> Void)?
     private var onScreenshotSend: ((String) -> Void)?
+    private var onDismiss: ((String) -> Void)?
 
     func start(
         onReply: @escaping (String, Int, String) -> Void,
-        onScreenshotSend: @escaping (String) -> Void
+        onScreenshotSend: @escaping (String) -> Void,
+        onDismiss: @escaping (String) -> Void
     ) {
         self.onReply = onReply
         self.onScreenshotSend = onScreenshotSend
+        self.onDismiss = onDismiss
         center.delegate = self
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             NSLog("opentomac notifications: authorization granted=\(granted) error=\(error?.localizedDescription ?? "none")")
@@ -36,6 +41,18 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
             intentIdentifiers: [],
             options: []
         )
+        let dismissCategory = UNNotificationCategory(
+            identifier: Self.dismissCategory,
+            actions: [],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        let replyDismissCategory = UNNotificationCategory(
+            identifier: Self.replyDismissCategory,
+            actions: [replyAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
         let sendAction = UNNotificationAction(
             identifier: Self.screenshotSendAction,
             title: "Send to Mac",
@@ -47,7 +64,7 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
             intentIdentifiers: [],
             options: []
         )
-        center.setNotificationCategories([replyCategory, screenshotCategory])
+        center.setNotificationCategories([replyCategory, dismissCategory, replyDismissCategory, screenshotCategory])
     }
 
     /** Offers a fresh phone screenshot; the Send action fetches the original. */
@@ -69,12 +86,14 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    func present(title: String, body: String, key: String, replyIndex: Int) {
+    func present(title: String, body: String, key: String, replyIndex: Int, dismissible: Bool) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.userInfo = ["key": key, "actionIndex": replyIndex]
-        if replyIndex >= 0 {
+        if dismissible {
+            content.categoryIdentifier = replyIndex >= 0 ? Self.replyDismissCategory : Self.dismissCategory
+        } else if replyIndex >= 0 {
             content.categoryIdentifier = Self.replyCategory
         }
         let request = UNNotificationRequest(identifier: key, content: content, trigger: nil)
@@ -85,6 +104,11 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
                 NSLog("opentomac notifications: banner accepted for \(key)")
             }
         }
+    }
+
+    func withdraw(key: String) {
+        center.removePendingNotificationRequests(withIdentifiers: [key])
+        center.removeDeliveredNotifications(withIdentifiers: [key])
     }
 
     /** Reports whether macOS currently allows this app to post notifications. */
@@ -115,6 +139,12 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
             if !mediaId.isEmpty {
                 Task { @MainActor in self.onScreenshotSend?(mediaId) }
             }
+            completionHandler()
+            return
+        }
+        if response.actionIdentifier == UNNotificationDismissActionIdentifier {
+            let key = response.notification.request.content.userInfo["key"] as? String ?? ""
+            if !key.isEmpty { Task { @MainActor in self.onDismiss?(key) } }
             completionHandler()
             return
         }

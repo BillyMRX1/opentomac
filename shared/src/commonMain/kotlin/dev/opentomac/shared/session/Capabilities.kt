@@ -6,6 +6,7 @@ object Capability {
     const val FILE_TRANSFER = "file.transfer"
     const val NOTIFICATION_MIRRORING = "notification.mirror"
     const val NOTIFICATION_ACTIONS = "notification.actions"
+    const val NOTIFICATION_DISMISS = "notification.dismiss"
     const val MEDIA_CONTROL = "media.control"
     const val CONTACTS = "contacts.browse"
     const val MESSAGING = "messaging.sms"
@@ -22,6 +23,7 @@ object Capability {
         FILE_TRANSFER,
         NOTIFICATION_MIRRORING,
         NOTIFICATION_ACTIONS,
+        NOTIFICATION_DISMISS,
         MEDIA_CONTROL,
         CONTACTS,
         MESSAGING,

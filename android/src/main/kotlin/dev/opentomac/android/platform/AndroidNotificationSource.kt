@@ -36,6 +36,14 @@ class AndroidNotificationSource : NotificationSource {
         action.actionIntent.send(listener, 0, fillInIntent)
     }
 
+    override suspend fun performDismissal(key: String) {
+        val listener = activeListener ?: return
+        val notification = listener.activeNotifications
+            ?.firstOrNull { it.key == key }
+            ?: return
+        if (notification.isClearable) listener.cancelNotification(key)
+    }
+
     companion object Bridge {
         private const val LOG_TAG = "opentomac"
         private val events = MutableSharedFlow<NotificationEvent>(extraBufferCapacity = 64)
@@ -92,6 +100,7 @@ class AndroidNotificationSource : NotificationSource {
                         postedAt = sbn.postTime,
                         iconPng = null,
                         actions = actions,
+                        dismissible = sbn.isClearable,
                     ),
                 ),
             )

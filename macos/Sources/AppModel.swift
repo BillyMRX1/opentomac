@@ -116,11 +116,14 @@ final class AppModel: ObservableObject {
             onDevices: { [weak self] devices in
                 Task { @MainActor in self?.devices = devices }
             },
-            onNotification: { [weak self] title, body, key, replyIndex in
+            onNotification: { [weak self] title, body, key, replyIndex, dismissible in
                 Task { @MainActor in
                     self?.lastNotification = "\(title) — \(body)"
-                    self?.notifier.present(title: title, body: body, key: key, replyIndex: Int(replyIndex))
+                    self?.notifier.present(title: title, body: body, key: key, replyIndex: Int(replyIndex), dismissible: dismissible.boolValue)
                 }
+            },
+            onNotificationWithdraw: { [weak self] key in
+                Task { @MainActor in self?.notifier.withdraw(key: key) }
             },
             onTransfers: { [weak self] items in
                 Task { @MainActor in self?.transfers = items }
@@ -217,6 +220,11 @@ final class AppModel: ObservableObject {
             onScreenshotSend: { [weak self] mediaId in
                 // Reuses the photo-import path: the original arrives as a transfer.
                 self?.importPhoto(mediaId)
+            },
+            onDismiss: { [weak self] key in
+                guard let self else { return }
+                guard self.peerSupports(Capability.shared.NOTIFICATION_DISMISS) else { return }
+                self.controller.dismissNotification(key: key)
             }
         )
         controller.start()

@@ -28,6 +28,7 @@ import dev.opentomac.shared.protocol.MediaNowPlaying
 import dev.opentomac.shared.protocol.Message
 import dev.opentomac.shared.protocol.MirrorRequest
 import dev.opentomac.shared.protocol.MirrorStop
+import dev.opentomac.shared.protocol.NotificationDismissRequest
 import dev.opentomac.shared.protocol.NotificationPosted
 import dev.opentomac.shared.protocol.OpenUrl
 import dev.opentomac.shared.protocol.RevokeDevice
@@ -139,7 +140,8 @@ class MacController(
     private val onState: (String) -> Unit,
     private val onPairing: (MacPairingState) -> Unit,
     private val onDevices: (List<TrustedDevice>) -> Unit,
-    private val onNotification: (String, String, String, Int) -> Unit,
+    private val onNotification: (String, String, String, Int, Boolean) -> Unit,
+    private val onNotificationWithdraw: (String) -> Unit,
     private val onTransfers: (List<MacTransfer>) -> Unit,
     private val onPhotos: (List<MacPhoto>) -> Unit,
     private val onOpenUrl: (String) -> Unit,
@@ -223,10 +225,12 @@ class MacController(
                     override suspend fun present(posted: NotificationPosted) {
                         val replyIndex = posted.actions.firstOrNull { it.isRemoteInput }?.index ?: -1
                         val title = if (posted.title.isBlank()) posted.appName else "${posted.appName}: ${posted.title}"
-                        onNotification(title, posted.body, posted.key, replyIndex)
+                        onNotification(title, posted.body, posted.key, replyIndex, posted.dismissible)
                     }
 
-                    override suspend fun withdraw(key: String) {}
+                    override suspend fun withdraw(key: String) {
+                        onNotificationWithdraw(key)
+                    }
                 },
                 send = { safeSend(ChannelId.EVENT, it) },
             )
@@ -532,6 +536,11 @@ class MacController(
     /** Sends an inline reply back to a mirrored phone notification. */
     fun replyToNotification(key: String, actionIndex: Int, text: String) {
         scope.launch { notifications.sendAction(key, actionIndex, text) }
+    }
+
+    /** Asks the connected Android device to dismiss a clearable notification. */
+    fun dismissNotification(key: String) {
+        scope.launch { safeSend(ChannelId.EVENT, NotificationDismissRequest(key)) }
     }
 
     /** Requests the first page of phone photos; results arrive via the photos callback. */
