@@ -14,6 +14,7 @@ object Capability {
     const val SCREEN_MIRRORING = "screen.mirror"
     const val REMOTE_INPUT = "remote.input"
     const val OPEN_URL = "url.open"
+    const val BATTERY = "device.battery"
 
     val all = setOf(
         CLIPBOARD,
@@ -28,6 +29,7 @@ object Capability {
         SCREEN_MIRRORING,
         REMOTE_INPUT,
         OPEN_URL,
+        BATTERY,
     )
 }
 

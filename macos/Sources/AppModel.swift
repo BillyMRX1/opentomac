@@ -10,6 +10,15 @@ struct NowPlayingState {
     let hasSession: Bool
 }
 
+struct BatteryState {
+    let percentage: Int
+    let charging: Bool
+
+    var formatted: String {
+        "\(percentage)% · \(charging ? "Charging" : "On battery")"
+    }
+}
+
 enum MirrorQualityPreset: String, CaseIterable, Identifiable {
     case low
     case balanced
@@ -76,6 +85,7 @@ final class AppModel: ObservableObject {
         isPlaying: false,
         hasSession: false
     )
+    @Published private(set) var batteryState: BatteryState?
     let protocolVersion: Int32
     let videoRenderer: VideoRenderer
 
@@ -181,6 +191,11 @@ final class AppModel: ObservableObject {
             },
             onPeerCapabilities: { [weak self] capabilities in
                 Task { @MainActor in self?.peerCapabilities = Set(capabilities) }
+            },
+            onBattery: { [weak self] state in
+                Task { @MainActor in
+                    self?.batteryState = state.map { BatteryState(percentage: Int($0.percentage), charging: $0.charging) }
+                }
             }
         )
         notifier.start(

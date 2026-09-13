@@ -15,6 +15,7 @@ import dev.opentomac.shared.pairing.SystemClock
 import dev.opentomac.shared.pairing.TrustedDevice
 import dev.opentomac.shared.protocol.ChannelId
 import dev.opentomac.shared.protocol.ClipboardItemMsg
+import dev.opentomac.shared.protocol.BatteryStatus
 import dev.opentomac.shared.protocol.DuplicatePolicy
 import dev.opentomac.shared.protocol.FileMeta
 import dev.opentomac.shared.protocol.InputKey
@@ -119,6 +120,12 @@ data class MacCallEntry(
     val durationSec: Int,
 )
 
+data class MacBatteryState(
+    val percentage: Int,
+    val charging: Boolean,
+    val sampledAtMs: Long,
+)
+
 /**
  * Kotlin orchestrator for the macOS app. It owns the identity, trust store, session,
  * and feature engines, keeping all coroutine, Flow, and suspend interaction in Kotlin
@@ -140,6 +147,7 @@ class MacController(
     private val onVideoFrame: (NSData, Long, Boolean) -> Unit,
     private val onMirrorStopped: (String) -> Unit,
     private val onPeerCapabilities: (List<String>) -> Unit,
+    private val onBattery: (MacBatteryState?) -> Unit,
 ) {
     private val collectedJobs = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -236,6 +244,9 @@ class MacController(
                         message.isPlaying,
                         message.hasSession,
                     )
+                    is BatteryStatus -> onBattery(
+                        MacBatteryState(message.percentage.coerceIn(0, 100), message.charging, message.sampledAtMs),
+                    )
                     is OpenUrl -> normalizedWebUrl(message.url)?.let(onOpenUrl)
                     is ScreenshotTaken -> onScreenshotTaken(message.mediaId, message.name)
                     is MirrorStop -> {
@@ -292,6 +303,7 @@ class MacController(
                         mirrorLive = false
                         onMirrorStopped("disconnected")
                     }
+                    if (state !is ConnectionState.Connected) onBattery(null)
                     onState(state.describe())
                 }
             }

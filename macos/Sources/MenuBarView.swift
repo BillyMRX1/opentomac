@@ -1,4 +1,5 @@
 import SwiftUI
+import OpentomacShared
 
 struct MenuBarView: View {
     @EnvironmentObject private var model: AppModel
@@ -33,6 +34,15 @@ struct MenuBarView: View {
                     RoundedRectangle(cornerRadius: DesignTokens.Radius.medium, style: .continuous)
                         .stroke(Color.primary.opacity(0.09), lineWidth: 1)
                 }
+
+            if model.peerCapabilities.contains(Capability.shared.BATTERY) {
+                HStack(spacing: DesignTokens.Spacing.small) {
+                    Image(systemName: "battery.75")
+                    Text(model.batteryState?.formatted ?? "Battery unavailable")
+                        .font(DesignTokens.TypeStyle.meta)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             Button {
                 openMainWindow()
