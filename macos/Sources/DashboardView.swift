@@ -84,6 +84,8 @@ struct DashboardView: View {
                 openWindow(id: "mirror")
                 if !model.mirrorActive { model.startMirror() }
             }
+            .disabled(!model.peerSupports(Capability.shared.SCREEN_MIRRORING))
+            .help(model.peerSupports(Capability.shared.SCREEN_MIRRORING) ? "" : "Connected device needs an update for screen mirroring.")
             toolButton("Pair", systemImage: "qrcode") {
                 model.startHosting()
                 showPairing = true
@@ -211,6 +213,7 @@ struct DashboardView: View {
         .controlSize(.small)
         .help(title)
         .accessibilityLabel(title)
+        .disabled(!model.peerSupports(Capability.shared.MEDIA_CONTROL))
     }
 
     private func latestNotification(_ note: String) -> some View {
@@ -341,6 +344,8 @@ struct DashboardView: View {
             Button("Send file…") { model.sendFile() }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
+                .disabled(!model.peerSupports(Capability.shared.FILE_TRANSFER))
+                .help(model.peerSupports(Capability.shared.FILE_TRANSFER) ? "" : "Connected device needs an update for file transfers.")
         }
         .padding(.horizontal, DesignTokens.Spacing.standard)
         .padding(.vertical, DesignTokens.Spacing.medium)

@@ -8,6 +8,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import dev.opentomac.android.runtime.AppRuntime
 import dev.opentomac.android.service.ConnectionService
+import dev.opentomac.shared.session.Capability
 import dev.opentomac.shared.session.ConnectionState
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -32,10 +33,15 @@ class ProcessTextActivity : ComponentActivity() {
                 AppRuntime.awaitReady()
                 AppRuntime.connectionState.first { it is ConnectionState.Connected }
             } != null
-            val sent = connected && AppRuntime.sendText(selected)
+            val supported = AppRuntime.peerSupports(Capability.CLIPBOARD)
+            val sent = connected && supported && AppRuntime.sendText(selected)
             Toast.makeText(
                 this@ProcessTextActivity,
-                if (sent) "Sent to paired device" else "Could not send. Open opentomac to connect.",
+                when {
+                    !supported -> "Connected peer needs an update for clipboard sharing"
+                    sent -> "Sent to paired device"
+                    else -> "Could not send. Open opentomac to connect."
+                },
                 Toast.LENGTH_SHORT,
             ).show()
             finish()

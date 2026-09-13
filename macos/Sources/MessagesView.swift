@@ -175,7 +175,8 @@ struct MessagesView: View {
                         Button("Send", action: sendReply)
                             .buttonStyle(.borderedProminent)
                             .keyboardShortcut(.defaultAction)
-                            .disabled(reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replyAddress.isEmpty || isSending)
+                            .disabled(reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replyAddress.isEmpty || isSending || !model.peerSupports(Capability.shared.MESSAGING))
+                            .help(model.peerSupports(Capability.shared.MESSAGING) ? "" : "Connected device needs an update for messaging.")
                     }
                     if let sendError {
                         Text(sendError)

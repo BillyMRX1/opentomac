@@ -14,6 +14,7 @@ import dev.opentomac.shared.protocol.Envelope
 import dev.opentomac.shared.protocol.FrameTransport
 import dev.opentomac.shared.protocol.Heartbeat
 import dev.opentomac.shared.protocol.HeartbeatAck
+import dev.opentomac.shared.protocol.Hello
 import dev.opentomac.shared.protocol.InMemoryFrameTransport
 import dev.opentomac.shared.protocol.ProtocolCodec
 import dev.opentomac.shared.protocol.RevokeDevice
@@ -292,6 +293,50 @@ class SessionManagerTest {
     }
 
     @Test
+    fun connectedManagersExchangeCapabilitiesAndDisconnectClearsThem() = runTest {
+        val identityA = Identity.generate()
+        val identityB = Identity.generate()
+        val trustedA = trusted(identityA)
+        val trustedB = trusted(identityB, "mac")
+        val storeA = InMemoryTrustStore().also { it.save(trustedB) }
+        val storeB = InMemoryTrustStore().also { it.save(trustedA) }
+        val (transportA, transportB) = InMemoryFrameTransport.pair()
+        var controlMessages = 0
+        val managerA = manager(
+            identityA,
+            PairingManager(identityA, storeA, SchedulerClock(testScheduler)),
+            storeA,
+            FixedTransportFactory(transportA),
+            deviceName = "Pixel 9",
+            platform = "android",
+            capabilities = setOf(Capability.CLIPBOARD, Capability.FILE_TRANSFER),
+        )
+        val managerB = manager(
+            identityB,
+            PairingManager(identityB, storeB, SchedulerClock(testScheduler)),
+            storeB,
+            ThrowingFactory(),
+            deviceName = "MacBook Pro",
+            platform = "macos",
+            capabilities = setOf(Capability.CLIPBOARD, Capability.OPEN_URL),
+        )
+        managerB.registerHandler(ChannelId.CONTROL) { controlMessages++ }
+
+        managerB.listen(transportB)
+        managerA.connect(trustedB)
+        runCurrent()
+
+        assertEquals(setOf(Capability.CLIPBOARD, Capability.OPEN_URL), managerA.peerCapabilities.value)
+        assertEquals(setOf(Capability.CLIPBOARD, Capability.FILE_TRANSFER), managerB.peerCapabilities.value)
+        assertEquals(0, controlMessages)
+
+        managerA.disconnect()
+        managerB.disconnect()
+        assertTrue(managerA.peerCapabilities.value.isEmpty())
+        assertTrue(managerB.peerCapabilities.value.isEmpty())
+    }
+
+    @Test
     fun incomingHeartbeatGetsEchoingAck() = runTest {
         val localIdentity = Identity.generate()
         val peerIdentity = Identity.generate()
@@ -312,6 +357,8 @@ class SessionManagerTest {
         manager.connect(peer)
         runCurrent()
         val securePeer = peerSession.await()
+        val hello = ProtocolCodec.decode(securePeer.receive()).payload
+        assertEquals(localIdentity.deviceId, assertIs<Hello>(hello).deviceId)
         securePeer.send(
             ProtocolCodec.encode(
                 Envelope(ProtocolCodec.PROTOCOL_VERSION, ChannelId.CONTROL, 44, Heartbeat(12_345)),
@@ -481,6 +528,9 @@ class SessionManagerTest {
         trustStore: InMemoryTrustStore,
         transportFactory: TransportFactory,
         config: SessionConfig = fastConfig(),
+        deviceName: String = "Peer",
+        platform: String = "android",
+        capabilities: Set<String> = emptySet(),
     ): SessionManager = SessionManager(
         identity = identity,
         pairingManager = pairingManager,
@@ -489,6 +539,9 @@ class SessionManagerTest {
         clock = SchedulerClock(testScheduler),
         scope = backgroundScope,
         config = config,
+        deviceName = deviceName,
+        platform = platform,
+        capabilities = capabilities,
     )
 
     private fun fastConfig(

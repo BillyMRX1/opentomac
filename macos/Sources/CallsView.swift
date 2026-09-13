@@ -19,6 +19,8 @@ struct CallsView: View {
                         if let generation { model.loadCallLog(generation: generation) }
                     }
                     .buttonStyle(.bordered)
+                    .disabled(!model.peerSupports(Capability.shared.CALLS))
+                    .help(model.peerSupports(Capability.shared.CALLS) ? "" : "Connected device needs an update for call history.")
                 }
 
                 if !model.callsGranted {

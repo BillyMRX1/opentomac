@@ -3,6 +3,7 @@ import AppKit
 import AVFoundation
 import CoreMedia
 import CoreFoundation
+import OpentomacShared
 
 /// Owns the H.264 decoder input path. Kotlin callbacks enter on a background
 /// thread; all format creation, Annex-B conversion, and display-layer access is
@@ -292,6 +293,8 @@ struct MirrorWindow: View {
                         Button("Retry") { model.startMirror() }
                             .buttonStyle(.borderedProminent)
                             .keyboardShortcut(.defaultAction)
+                            .disabled(!model.peerSupports(Capability.shared.SCREEN_MIRRORING))
+                            .help(model.peerSupports(Capability.shared.SCREEN_MIRRORING) ? "" : "Connected device needs an update for screen mirroring.")
                     }
                     .padding(DesignTokens.Spacing.large)
                     .frame(minWidth: 240)
@@ -402,7 +405,7 @@ struct MirrorWindow: View {
         .controlSize(.small)
         .help(title)
         .accessibilityLabel(title)
-        .disabled(!model.mirrorConfigured)
+        .disabled(!model.mirrorConfigured || !model.peerSupports(Capability.shared.REMOTE_INPUT))
     }
 
     private func dismissControlHint() {

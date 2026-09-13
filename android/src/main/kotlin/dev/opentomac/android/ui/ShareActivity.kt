@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import dev.opentomac.android.runtime.AppRuntime
 import dev.opentomac.android.service.ConnectionService
+import dev.opentomac.shared.session.Capability
 import dev.opentomac.shared.session.ConnectionState
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -30,11 +31,15 @@ class ShareActivity : ComponentActivity() {
         lifecycleScope.launch {
             val result = if (uris.isNotEmpty()) {
                 AppRuntime.awaitReady()
-                val count = AppRuntime.enqueueSharedUris(applicationContext, uris)
-                if (count > 0) {
-                    "Shared $count item${if (count == 1) "" else "s"}"
+                if (!AppRuntime.peerSupports(Capability.FILE_TRANSFER)) {
+                    "Connected peer needs an update for file transfers"
                 } else {
-                    "Could not read shared items"
+                    val count = AppRuntime.enqueueSharedUris(applicationContext, uris)
+                    if (count > 0) {
+                        "Shared $count item${if (count == 1) "" else "s"}"
+                    } else {
+                        "Could not read shared items"
+                    }
                 }
             } else {
                 val connected = withTimeoutOrNull(5_000) {
@@ -43,12 +48,18 @@ class ShareActivity : ComponentActivity() {
                 } != null
                 val value = requireNotNull(text)
                 val isUrl = AppRuntime.isHttpUrl(value)
-                val sent = connected && if (isUrl) {
+                val supported = AppRuntime.peerSupports(
+                    if (isUrl) Capability.OPEN_URL else Capability.CLIPBOARD,
+                )
+                val sent = connected && supported && if (isUrl) {
                     AppRuntime.openUrlOnPeer(value)
                 } else {
                     AppRuntime.sendText(value)
                 }
-                if (sent) {
+                if (!supported) {
+                    if (isUrl) "Connected peer needs an update to open links"
+                    else "Connected peer needs an update for clipboard sharing"
+                } else if (sent) {
                     if (isUrl) "Link sent to Mac" else "Text sent to Mac"
                 } else {
                     "Could not send. Open opentomac to connect."

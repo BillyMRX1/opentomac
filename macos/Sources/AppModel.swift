@@ -50,6 +50,7 @@ final class AppModel: ObservableObject {
     @Published var connectionStatus: String = "Starting"
     @Published var pairing: MacPairingState?
     @Published var devices: [TrustedDevice] = []
+    @Published private(set) var peerCapabilities: Set<String> = []
     @Published var lastNotification: String?
     @Published var transfers: [MacTransfer] = []
     @Published var photos: [MacPhoto] = []
@@ -177,15 +178,22 @@ final class AppModel: ObservableObject {
                     self?.mirrorConfigured = false
                     self?.mirrorStoppedReason = reason
                 }
+            },
+            onPeerCapabilities: { [weak self] capabilities in
+                Task { @MainActor in self?.peerCapabilities = Set(capabilities) }
             }
         )
         notifier.start(
             onReply: { [weak self] key, actionIndex, text in
+                guard self?.peerSupports(Capability.shared.NOTIFICATION_ACTIONS) ?? true else {
+                    self?.showUnsupported("notification actions")
+                    return
+                }
                 self?.controller.replyToNotification(key: key, actionIndex: Int32(actionIndex), text: text)
             },
             onScreenshotSend: { [weak self] mediaId in
                 // Reuses the photo-import path: the original arrives as a transfer.
-                self?.controller.importPhoto(id: mediaId)
+                self?.importPhoto(mediaId)
             }
         )
         controller.start()
@@ -204,11 +212,28 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func loadPhotos() { controller.loadPhotos() }
+    func loadPhotos() {
+        guard peerSupports(Capability.shared.PHOTO_BROWSING) else {
+            showUnsupported("photo browsing")
+            return
+        }
+        controller.loadPhotos()
+    }
 
-    func importPhoto(_ id: String) { controller.importPhoto(id: id) }
+    func importPhoto(_ id: String) {
+        guard peerSupports(Capability.shared.PHOTO_BROWSING) else {
+            showUnsupported("photo browsing")
+            return
+        }
+        controller.importPhoto(id: id)
+    }
 
     func requestThumbnail(_ id: String, completion: @escaping (Data?) -> Void) {
+        guard peerSupports(Capability.shared.PHOTO_BROWSING) else {
+            showUnsupported("photo browsing")
+            completion(nil)
+            return
+        }
         controller.requestThumbnail(id: id) { base64 in
             let data = base64.flatMap { Data(base64Encoded: $0) }
             Task { @MainActor in completion(data) }
@@ -216,6 +241,10 @@ final class AppModel: ObservableObject {
     }
 
     func searchContacts(_ query: String) {
+        guard peerSupports(Capability.shared.CONTACTS) else {
+            showUnsupported("contacts")
+            return
+        }
         controller.searchContacts(query: query) { [weak self] items, granted in
             Task { @MainActor in
                 self?.contacts = items
@@ -236,6 +265,10 @@ final class AppModel: ObservableObject {
 
     func loadSmsThreads(generation: Int) {
         guard generation == smsGeneration else { return }
+        guard peerSupports(Capability.shared.MESSAGING) else {
+            showUnsupported("messaging")
+            return
+        }
         controller.loadSmsThreads { [weak self] items, granted in
             Task { @MainActor in
                 guard let self, self.smsGeneration == generation else { return }
@@ -247,6 +280,10 @@ final class AppModel: ObservableObject {
 
     func loadSmsThread(_ threadId: String, generation: Int) {
         guard generation == smsGeneration else { return }
+        guard peerSupports(Capability.shared.MESSAGING) else {
+            showUnsupported("messaging")
+            return
+        }
         requestedSmsThreadId = threadId
         controller.loadSmsThread(threadId: threadId) { [weak self] address, items, granted in
             Task { @MainActor in
@@ -267,6 +304,10 @@ final class AppModel: ObservableObject {
         body: String,
         onResult: @escaping (Bool, String) -> Void
     ) {
+        guard peerSupports(Capability.shared.MESSAGING) else {
+            onResult(false, "Connected device needs an update for messaging.")
+            return
+        }
         controller.sendSms(address: address, body: body) { sent, error in
             Task { @MainActor in onResult(sent.boolValue, error) }
         }
@@ -291,6 +332,10 @@ final class AppModel: ObservableObject {
 
     func loadCallLog(generation: Int) {
         guard generation == callGeneration else { return }
+        guard peerSupports(Capability.shared.CALLS) else {
+            showUnsupported("call history")
+            return
+        }
         controller.loadCallLog { [weak self] items, granted in
             Task { @MainActor in
                 guard let self, self.callGeneration == generation else { return }
@@ -308,6 +353,10 @@ final class AppModel: ObservableObject {
     }
 
     func sendFile() {
+        guard peerSupports(Capability.shared.FILE_TRANSFER) else {
+            showUnsupported("file transfers")
+            return
+        }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
@@ -317,9 +366,19 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func mediaControl(_ command: String) { controller.mediaControl(command: command) }
+    func mediaControl(_ command: String) {
+        guard peerSupports(Capability.shared.MEDIA_CONTROL) else {
+            showUnsupported("media controls")
+            return
+        }
+        controller.mediaControl(command: command)
+    }
 
     func startMirror() {
+        guard peerSupports(Capability.shared.SCREEN_MIRRORING) else {
+            showUnsupported("screen mirroring")
+            return
+        }
         mirrorRestartTask?.cancel()
         mirrorRestartTask = nil
         videoRenderer.reset()
@@ -344,6 +403,10 @@ final class AppModel: ObservableObject {
     }
 
     func sendMirrorTap(x: CGFloat, y: CGFloat) {
+        guard peerSupports(Capability.shared.REMOTE_INPUT) else {
+            showUnsupported("remote input")
+            return
+        }
         controller.sendInputTap(x: Float(x), y: Float(y))
     }
 
@@ -354,6 +417,10 @@ final class AppModel: ObservableObject {
         y2: CGFloat,
         durationMs: Int
     ) {
+        guard peerSupports(Capability.shared.REMOTE_INPUT) else {
+            showUnsupported("remote input")
+            return
+        }
         controller.sendInputSwipe(
             x1: Float(x1),
             y1: Float(y1),
@@ -364,10 +431,18 @@ final class AppModel: ObservableObject {
     }
 
     func sendMirrorKey(_ action: String) {
+        guard peerSupports(Capability.shared.REMOTE_INPUT) else {
+            showUnsupported("remote input")
+            return
+        }
         controller.sendInputKey(action: action)
     }
 
     func sendMirrorText(_ text: String, deleteCount: Int = 0) {
+        guard peerSupports(Capability.shared.REMOTE_INPUT) else {
+            showUnsupported("remote input")
+            return
+        }
         controller.sendInputText(text: text, deleteCount: Int32(clamping: deleteCount))
     }
 
@@ -403,8 +478,22 @@ final class AppModel: ObservableObject {
     func rejectPairing() { controller.rejectPairing() }
     func cancelPairing() { controller.cancelPairing() }
     func forget(_ device: TrustedDevice) { controller.forget(deviceId: device.deviceId) }
-    func sendFiles(_ paths: [String]) { controller.sendFiles(paths: paths) }
+    func sendFiles(_ paths: [String]) {
+        guard peerSupports(Capability.shared.FILE_TRANSFER) else {
+            showUnsupported("file transfers")
+            return
+        }
+        controller.sendFiles(paths: paths)
+    }
     func diagnostics() -> String { controller.diagnostics() }
+
+    func peerSupports(_ capability: String) -> Bool {
+        peerCapabilities.isEmpty || peerCapabilities.contains(capability)
+    }
+
+    func showUnsupported(_ feature: String) {
+        lastNotification = "Connected device needs an update for \(feature)."
+    }
 
     private static func webURL(from value: String) -> URL? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
