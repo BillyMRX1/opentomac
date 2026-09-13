@@ -86,6 +86,8 @@ final class AppModel: ObservableObject {
         hasSession: false
     )
     @Published private(set) var batteryState: BatteryState?
+    @Published private(set) var phoneRinging = false
+    @Published var ringError: String?
     let protocolVersion: Int32
     let videoRenderer: VideoRenderer
 
@@ -195,6 +197,12 @@ final class AppModel: ObservableObject {
             onBattery: { [weak self] state in
                 Task { @MainActor in
                     self?.batteryState = state.map { BatteryState(percentage: Int($0.percentage), charging: $0.charging) }
+                }
+            },
+            onRingStatus: { [weak self] ringing, error in
+                Task { @MainActor in
+                    self?.phoneRinging = ringing.boolValue
+                    self?.ringError = error.isEmpty ? nil : error
                 }
             }
         )
@@ -387,6 +395,24 @@ final class AppModel: ObservableObject {
             return
         }
         controller.mediaControl(command: command)
+    }
+
+    func toggleRingPhone() {
+        guard isConnected else {
+            ringError = "Connect to a phone before ringing it."
+            return
+        }
+        guard peerSupports(Capability.shared.RING) else {
+            showUnsupported("ring phone")
+            return
+        }
+        ringError = nil
+        controller.ringPhone(start: !phoneRinging)
+    }
+
+    private var isConnected: Bool {
+        let value = connectionStatus.lowercased()
+        return value.contains("connected") && !value.contains("not connected") && !value.contains("disconnected")
     }
 
     func startMirror() {

@@ -97,6 +97,21 @@ class MessagesTest {
     }
 
     @Test
+    fun ringCommandRoundTrips() {
+        assertEquals(RingCommand(start = true), roundTrip(RingCommand(start = true), channel = ChannelId.EVENT))
+        assertEquals(RingCommand(start = false), roundTrip(RingCommand(start = false), channel = ChannelId.EVENT))
+    }
+
+    @Test
+    fun ringStatusRoundTrips() {
+        assertEquals(RingStatus(ringing = true), roundTrip(RingStatus(ringing = true), channel = ChannelId.EVENT))
+        assertEquals(
+            RingStatus(ringing = false, error = "audio unavailable"),
+            roundTrip(RingStatus(ringing = false, error = "audio unavailable"), channel = ChannelId.EVENT),
+        )
+    }
+
+    @Test
     fun clipboardItemMsgRoundTrip() {
         val msg = ClipboardItemMsg(
             itemId = "clip-1",

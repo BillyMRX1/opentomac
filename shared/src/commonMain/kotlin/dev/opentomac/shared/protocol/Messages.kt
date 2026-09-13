@@ -167,6 +167,19 @@ data class BatteryStatus(
     @ProtoNumber(3) val sampledAtMs: Long,
 ) : Message
 
+@Serializable
+@SerialName("ring_command")
+data class RingCommand(
+    @ProtoNumber(1) val start: Boolean,
+) : Message
+
+@Serializable
+@SerialName("ring_status")
+data class RingStatus(
+    @ProtoNumber(1) val ringing: Boolean,
+    @ProtoNumber(2) val error: String = "",
+) : Message
+
 // --- Clipboard ---
 
 @Serializable
