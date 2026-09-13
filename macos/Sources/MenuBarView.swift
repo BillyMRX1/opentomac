@@ -35,7 +35,7 @@ struct MenuBarView: View {
                 }
 
             Button {
-                openWindow(id: "main")
+                openMainWindow()
             } label: {
                 Label("Open opentomac", systemImage: "macwindow")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -57,6 +57,22 @@ struct MenuBarView: View {
         .padding(DesignTokens.Spacing.standard)
         .frame(width: 320)
         .tint(DesignTokens.ColorToken.accent)
+        .onReceive(NotificationCenter.default.publisher(for: .opentomacOpenMainWindow)) { _ in
+            openMainWindow()
+        }
+    }
+
+    private func openMainWindow() {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+        openWindow(id: "main")
+        app.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async {
+            guard let window = app.windows.first(where: { $0.title == "opentomac" }) else {
+                return
+            }
+            window.makeKeyAndOrderFront(nil)
+        }
     }
 
     private var isConnected: Bool {
