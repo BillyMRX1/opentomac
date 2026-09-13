@@ -3,6 +3,7 @@ import AppKit
 import AVFoundation
 import CoreMedia
 import CoreFoundation
+import OpentomacShared
 
 /// Owns the H.264 decoder input path. Kotlin callbacks enter on a background
 /// thread; all format creation, Annex-B conversion, and display-layer access is
