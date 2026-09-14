@@ -75,8 +75,10 @@ import dev.opentomac.shared.session.SessionManager
 import dev.opentomac.shared.session.TransportFactory
 import dev.opentomac.shared.transfer.OfferDecision
 import dev.opentomac.shared.transfer.SourceFile
+import dev.opentomac.shared.transfer.TransferDirection
 import dev.opentomac.shared.transfer.TransferEngine
 import dev.opentomac.shared.transfer.TransferJob
+import dev.opentomac.shared.transfer.TransferState
 import dev.opentomac.shared.transport.TcpServer
 import dev.opentomac.shared.transport.TcpTransportFactory
 import kotlinx.coroutines.CoroutineScope
@@ -197,7 +199,11 @@ object AppRuntime {
     private val mutableTransfers = MutableStateFlow<List<TransferJob>>(emptyList())
     val transfers: StateFlow<List<TransferJob>> = mutableTransfers.asStateFlow()
 
+    private val mutableReceivedFiles = MutableStateFlow<List<ReceivedFile>>(emptyList())
+    val receivedFiles: StateFlow<List<ReceivedFile>> = mutableReceivedFiles.asStateFlow()
+
     private var receiveDir: File? = null
+    private val watchedReceiveJobIds = Collections.synchronizedSet(mutableSetOf<String>())
 
     /** Absolute directory where received files land, for opening them from the UI. */
     fun receiveDirectoryFile(): File? = receiveDir
@@ -271,6 +277,7 @@ object AppRuntime {
                 }
             }
             receiveDir = receiveDirectory(appContext)
+            ownerScope.launch { refreshReceivedFiles() }
             // Staged outbox copies have no delivery-tied lifecycle (documented limit);
             // day-old orphans are dead weight and auto-send would otherwise grow the
             // cache without bound. Anything mid-transfer is far younger than a day.
@@ -407,7 +414,15 @@ object AppRuntime {
             sync.start(ownerScope)
             notifications.start(ownerScope)
             mediaRemote.start()
-            ownerScope.launch { transfer.transfers.collect { mutableTransfers.value = it } }
+            ownerScope.launch {
+                transfer.transfers.collect { jobs ->
+                    mutableTransfers.value = jobs
+                    jobs.asSequence()
+                        .filter { it.direction == TransferDirection.RECEIVE }
+                        .filter { watchedReceiveJobIds.add(it.jobId) }
+                        .forEach { job -> watchReceiveCompletion(job, ownerScope) }
+                }
+            }
             refreshDevices()
             ownerScope.launch {
                 session.state.collect { state ->
@@ -687,6 +702,33 @@ object AppRuntime {
 
     suspend fun cancelTransfer(jobId: String) {
         transferEngine?.cancel(jobId)
+    }
+
+    /** Rescans the private receive directory, for tab resume and post-transfer refreshes. */
+    suspend fun refreshReceivedFiles() {
+        val dir = receiveDir ?: return
+        mutableReceivedFiles.value = withContext(Dispatchers.IO) { scanReceivedFiles(dir) }
+    }
+
+    /** A previously listed file vanished from disk; notify the user and drop it from the list. */
+    suspend fun reportMissingReceivedFile(name: String) {
+        mutableNotice.value = "\"$name\" is no longer available"
+        refreshReceivedFiles()
+    }
+
+    fun reportReceivedFileOpenFailed(name: String) {
+        mutableNotice.value = "No app could open \"$name\""
+    }
+
+    private fun watchReceiveCompletion(job: TransferJob, ownerScope: CoroutineScope) {
+        ownerScope.launch {
+            job.progress.first {
+                it.state == TransferState.DONE ||
+                    it.state == TransferState.FAILED ||
+                    it.state == TransferState.CANCELLED
+            }
+            refreshReceivedFiles()
+        }
     }
 
     suspend fun sendClipboard(): Boolean {
