@@ -86,11 +86,12 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    func present(title: String, body: String, key: String, replyIndex: Int, dismissible: Bool) {
+    func present(title: String, body: String, key: String, replyIndex: Int, dismissible: Bool, packageId: String, appName: String) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.userInfo = ["key": key, "actionIndex": replyIndex]
+        // packageId stored so withdrawByPackage can remove all banners for a denied app.
+        content.userInfo = ["key": key, "actionIndex": replyIndex, "packageId": packageId, "appName": appName]
         if dismissible {
             content.categoryIdentifier = replyIndex >= 0 ? Self.replyDismissCategory : Self.dismissCategory
         } else if replyIndex >= 0 {
@@ -109,6 +110,47 @@ final class NotificationBridge: NSObject, UNUserNotificationCenterDelegate {
     func withdraw(key: String) {
         center.removePendingNotificationRequests(withIdentifiers: [key])
         center.removeDeliveredNotifications(withIdentifiers: [key])
+    }
+
+    /// Removes all pending/delivered notifications whose userInfo `packageId` matches.
+    func withdrawByPackage(packageId: String) {
+        center.getDeliveredNotifications { notifications in
+            let ids = notifications
+                .filter { $0.request.content.userInfo["packageId"] as? String == packageId }
+                .map(\.request.identifier)
+            if !ids.isEmpty {
+                self.center.removeDeliveredNotifications(withIdentifiers: ids)
+            }
+        }
+        center.getPendingNotificationRequests { requests in
+            let ids = requests
+                .filter { $0.content.userInfo["packageId"] as? String == packageId }
+                .map(\.identifier)
+            if !ids.isEmpty {
+                self.center.removePendingNotificationRequests(withIdentifiers: ids)
+            }
+        }
+    }
+
+    /// Removes all pending/delivered opentomac phone notifications (used on pause).
+    func withdrawAll() {
+        center.getDeliveredNotifications { notifications in
+            // Only remove mirrored phone notifications (they all carry a "key" in userInfo).
+            let ids = notifications
+                .filter { $0.request.content.userInfo["key"] is String }
+                .map(\.request.identifier)
+            if !ids.isEmpty {
+                self.center.removeDeliveredNotifications(withIdentifiers: ids)
+            }
+        }
+        center.getPendingNotificationRequests { requests in
+            let ids = requests
+                .filter { $0.content.userInfo["key"] is String }
+                .map(\.identifier)
+            if !ids.isEmpty {
+                self.center.removePendingNotificationRequests(withIdentifiers: ids)
+            }
+        }
     }
 
     /** Reports whether macOS currently allows this app to post notifications. */
