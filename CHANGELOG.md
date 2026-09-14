@@ -2,6 +2,20 @@
 
 All notable changes to opentomac are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.0](https://github.com/BillyMRX1/opentomac/compare/v0.5.0...v0.6.0) (2026-09-14)
+
+
+### Features
+
+* **android:** add clipboard history tab ([fe017d7](https://github.com/BillyMRX1/opentomac/commit/fe017d79162cbac5dfe9fa5fd44d5d7f262f676c))
+* **android:** add clipboard history tab ([7873181](https://github.com/BillyMRX1/opentomac/commit/78731813a1c8ca9da8bb776f19b8fea74330eff1)), closes [#16](https://github.com/BillyMRX1/opentomac/issues/16)
+* **android:** browse received files ([89b9d10](https://github.com/BillyMRX1/opentomac/commit/89b9d10585798ec9961ce42e04ae80b9c5950d19))
+* **android:** browse received files ([47a05f2](https://github.com/BillyMRX1/opentomac/commit/47a05f24427c76807cbbcddb7bbe06d0dafb177f)), closes [#17](https://github.com/BillyMRX1/opentomac/issues/17)
+* **notifications:** add notification filters ([00ff2d0](https://github.com/BillyMRX1/opentomac/commit/00ff2d0a9fca434563ba5abd12fa006b8f5a3e56))
+* **notifications:** add notification filters ([2c6c529](https://github.com/BillyMRX1/opentomac/commit/2c6c529899d04f3d705bc1fc78cbc0daccdba760)), closes [#22](https://github.com/BillyMRX1/opentomac/issues/22)
+* **notifications:** sync dismissals to phone ([42a2fd1](https://github.com/BillyMRX1/opentomac/commit/42a2fd18ea76258b0f6c6a568c542ae06eea9f08))
+* **notifications:** sync dismissals to phone ([40001a0](https://github.com/BillyMRX1/opentomac/commit/40001a022891318df7237d72c2ead740d724a1ff)), closes [#21](https://github.com/BillyMRX1/opentomac/issues/21)
+
 ## [0.5.0](https://github.com/BillyMRX1/opentomac/compare/v0.4.0...v0.5.0) (2026-09-13)
 
 
