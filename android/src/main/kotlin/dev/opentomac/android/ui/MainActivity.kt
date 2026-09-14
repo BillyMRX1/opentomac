@@ -76,6 +76,7 @@ private enum class Screen { DASHBOARD, PAIR }
 
 private enum class Tab(val label: String, val glyph: Glyph) {
     HOME("Home", Glyph.Home),
+    CLIPBOARD("Clipboard", Glyph.Clipboard),
     TRANSFERS("Transfers", Glyph.Transfer),
     SETTINGS("Settings", Glyph.Settings),
 }
@@ -90,6 +91,7 @@ private fun OpentomacApp() {
         var screen by remember { mutableStateOf(Screen.DASHBOARD) }
         var tab by remember { mutableStateOf(Tab.HOME) }
         val homeListState = rememberLazyListState()
+        val clipboardListState = rememberLazyListState()
         val transfersListState = rememberLazyListState()
         val mirrorConsentRequested by AppRuntime.mirrorConsentRequested.collectAsStateWithLifecycle()
 
@@ -169,6 +171,10 @@ private fun OpentomacApp() {
                         onMirror = { requestMirrorConsent() },
                         onStopMirroring = { AppRuntime.stopMirroring() },
                         onOpenSettings = { tab = Tab.SETTINGS },
+                    )
+                    Tab.CLIPBOARD -> ClipboardTab(
+                        modifier = Modifier.padding(padding),
+                        listState = clipboardListState,
                     )
                     Tab.TRANSFERS -> TransfersTab(
                         modifier = Modifier.padding(padding),
