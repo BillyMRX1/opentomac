@@ -7,6 +7,7 @@ struct DashboardView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var showPairing = false
     @State private var isDropTargeted = false
+    @State private var showNotificationFilters = false
 
     var body: some View {
         ZStack {
@@ -137,11 +138,34 @@ struct DashboardView: View {
                 : "Phone notifications are ready",
             detail: model.notificationsAuthorized == false
                 ? "Allow notifications in System Settings to receive phone banners on this Mac."
-                : "Banners follow the Mac’s Focus and notification settings."
+                : "Banners follow the Mac's Focus and notification settings."
         ) {
-            Button("Notification Settings") { model.openNotificationSettings() }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            if model.notificationsAuthorized == false {
+                Button("Notification Settings") { model.openNotificationSettings() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            } else {
+                Button("Filters") { showNotificationFilters = true }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Pause mirroring or block individual apps")
+                    .sheet(isPresented: $showNotificationFilters) {
+                        NotificationFilterView(isPresented: $showNotificationFilters)
+                            .environmentObject(model)
+                    }
+                // Show a small pause indicator pill when mirroring is paused.
+                if model.activePeerDeviceId != nil && model.notificationsPaused {
+                    Label("Paused", systemImage: "bell.slash")
+                        .font(DesignTokens.TypeStyle.meta)
+                        .foregroundStyle(DesignTokens.ColorToken.warning)
+                        .padding(.horizontal, DesignTokens.Spacing.small)
+                        .padding(.vertical, 4)
+                        .background(
+                            DesignTokens.ColorToken.warning.opacity(0.12),
+                            in: Capsule()
+                        )
+                }
+            }
         }
     }
 

@@ -5,6 +5,7 @@ import dev.opentomac.shared.contacts.ContactsCompanion
 import dev.opentomac.shared.crypto.Identity
 import dev.opentomac.shared.media.MediaCompanionBrowser
 import dev.opentomac.shared.messaging.MessagingCompanion
+import dev.opentomac.shared.notifications.FilterPolicy
 import dev.opentomac.shared.notifications.NotificationCompanion
 import dev.opentomac.shared.notifications.NotificationPresenter
 import dev.opentomac.shared.pairing.PairingManager
@@ -140,7 +141,11 @@ class MacController(
     private val onState: (String) -> Unit,
     private val onPairing: (MacPairingState) -> Unit,
     private val onDevices: (List<TrustedDevice>) -> Unit,
-    private val onNotification: (String, String, String, Int, Boolean) -> Unit,
+    /**
+     * Fires for every incoming [NotificationPosted] that passes the companion layer.
+     * Parameters: title, body, key, replyIndex, dismissible, packageId, appName.
+     */
+    private val onNotification: (String, String, String, Int, Boolean, String, String) -> Unit,
     private val onNotificationWithdraw: (String) -> Unit,
     private val onTransfers: (List<MacTransfer>) -> Unit,
     private val onPhotos: (List<MacPhoto>) -> Unit,
@@ -153,6 +158,8 @@ class MacController(
     private val onPeerCapabilities: (List<String>) -> Unit,
     private val onBattery: (MacBatteryState?) -> Unit,
     private val onRingStatus: (Boolean, String) -> Unit,
+    /** Reports the authenticated peer's device ID, or null after disconnect. */
+    private val onConnectedPeer: (String?) -> Unit,
 ) {
     private val collectedJobs = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -225,7 +232,7 @@ class MacController(
                     override suspend fun present(posted: NotificationPosted) {
                         val replyIndex = posted.actions.firstOrNull { it.isRemoteInput }?.index ?: -1
                         val title = if (posted.title.isBlank()) posted.appName else "${posted.appName}: ${posted.title}"
-                        onNotification(title, posted.body, posted.key, replyIndex, posted.dismissible)
+                        onNotification(title, posted.body, posted.key, replyIndex, posted.dismissible, posted.packageId, posted.appName)
                     }
 
                     override suspend fun withdraw(key: String) {
@@ -304,7 +311,10 @@ class MacController(
                 sessionManager.state.collect { state ->
                     // A restarted phone's sequence counter starts over; drop the old
                     // replay watermark or its items are silently discarded.
-                    if (state is ConnectionState.Connected) clipboardSync.onSessionEstablished()
+                    if (state is ConnectionState.Connected) {
+                        clipboardSync.onSessionEstablished()
+                        onConnectedPeer(state.peer.deviceId)
+                    }
                     // A dropped session cannot deliver MirrorStop: end the viewer
                     // locally or it freezes on the last frame claiming to be live.
                     if (state !is ConnectionState.Connected && mirrorLive) {
@@ -312,6 +322,7 @@ class MacController(
                         onMirrorStopped("disconnected")
                     }
                     if (state !is ConnectionState.Connected) {
+                        onConnectedPeer(null)
                         onBattery(null)
                         onRingStatus(false, "")
                     }
@@ -733,6 +744,16 @@ class MacController(
         is ConnectionState.Connecting -> "Connecting (attempt $attempt)"
         is ConnectionState.Connected -> "Connected to ${peer.displayName}"
         is ConnectionState.Degraded -> "Limited: $reason"
+    }
+
+    // ---- Notification filter -------------------------------------------------
+
+    /** Applies a notification filter to the currently connected phone. */
+    fun updateNotificationFilter(paused: Boolean, deniedPackages: List<String>) {
+        scope.launch {
+            val policy = FilterPolicy(deniedPackages = deniedPackages.toSet(), paused = paused)
+            runCatching { notifications.updateFilter(policy) }
+        }
     }
 
     private class ConfigurableTransportFactory : TransportFactory {

@@ -51,6 +51,13 @@ enum MirrorQualityPreset: String, CaseIterable, Identifiable {
     }
 }
 
+/// An Android app observed from a mirrored notification.
+struct ObservedApp: Identifiable, Equatable {
+    let packageId: String
+    let appName: String
+    var id: String { packageId }
+}
+
 /// Bridges the Kotlin `MacController` to SwiftUI. Controller callbacks are
 /// marshaled onto the main queue before touching published state; video frames
 /// go directly to the renderer's serial queue.
@@ -88,6 +95,17 @@ final class AppModel: ObservableObject {
     @Published private(set) var batteryState: BatteryState?
     @Published private(set) var phoneRinging = false
     @Published var ringError: String?
+
+    // ---- Notification filter state ----
+    /// The active peer's device ID (non-nil while connected).
+    @Published private(set) var activePeerDeviceId: String?
+    /// Apps observed from mirrored notifications for the active peer.
+    @Published private(set) var observedApps: [ObservedApp] = []
+    /// Whether notification mirroring is paused for the active peer.
+    @Published private(set) var notificationsPaused: Bool = false
+    /// Package IDs currently on the deny-list for the active peer.
+    @Published private(set) var deniedPackageIds: Set<String> = []
+
     let protocolVersion: Int32
     let videoRenderer: VideoRenderer
 
@@ -98,6 +116,12 @@ final class AppModel: ObservableObject {
     private var smsGeneration = 0
     private var callGeneration = 0
     private static let mirrorQualityDefaultsKey = "mirrorQualityPreset"
+
+    /// UserDefaults key prefix for per-device filter policy.
+    private static let filterPausedKeyPrefix = "notifFilter.paused."
+    private static let filterDeniedKeyPrefix = "notifFilter.denied."
+    /// UserDefaults key prefix for observed apps (stored as JSON array of {packageId, appName}).
+    private static let observedAppsKeyPrefix = "notifFilter.observedApps."
 
     init() {
         mirrorQuality = UserDefaults.standard.string(forKey: Self.mirrorQualityDefaultsKey)
@@ -116,10 +140,24 @@ final class AppModel: ObservableObject {
             onDevices: { [weak self] devices in
                 Task { @MainActor in self?.devices = devices }
             },
-            onNotification: { [weak self] title, body, key, replyIndex, dismissible in
+            onNotification: { [weak self] title, body, key, replyIndex, dismissible, packageId, appName in
                 Task { @MainActor in
-                    self?.lastNotification = "\(title) — \(body)"
-                    self?.notifier.present(title: title, body: body, key: key, replyIndex: Int(replyIndex), dismissible: dismissible.boolValue)
+                    guard let self else { return }
+                    self.lastNotification = "\(title) — \(body)"
+                    // Record observed app (no duplicates).
+                    let app = ObservedApp(packageId: packageId, appName: appName)
+                    if let peerId = self.activePeerDeviceId, !packageId.isEmpty,
+                       !self.observedApps.contains(where: { $0.packageId == packageId }) {
+                        self.observedApps.append(app)
+                        self.persistObservedApps(deviceId: peerId)
+                    }
+                    self.notifier.present(
+                        title: title, body: body, key: key,
+                        replyIndex: Int(replyIndex),
+                        dismissible: dismissible.boolValue,
+                        packageId: packageId,
+                        appName: appName
+                    )
                 }
             },
             onNotificationWithdraw: { [weak self] key in
@@ -206,6 +244,15 @@ final class AppModel: ObservableObject {
                 Task { @MainActor in
                     self?.phoneRinging = ringing.boolValue
                     self?.ringError = error.isEmpty ? nil : error
+                }
+            },
+            onConnectedPeer: { [weak self] deviceId in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.activePeerDeviceId = deviceId
+                    guard let deviceId else { return }
+                    self.loadPersistedFilterState(deviceId: deviceId)
+                    self.pushNotificationFilter()
                 }
             }
         )
@@ -555,5 +602,69 @@ final class AppModel: ObservableObject {
             url.host?.isEmpty == false
         else { return nil }
         return url
+    }
+
+    // MARK: – Notification filter
+
+    /// Returns whether notification filtering controls should be available.
+    var notificationFilteringSupported: Bool {
+        peerSupports(Capability.shared.NOTIFICATION_MIRRORING)
+    }
+
+    /// Applies a new filter policy: persists it, pushes it to the phone via
+    /// `MacController`, and withdraws any already-delivered notifications
+    /// that are now suppressed.
+    func applyFilterPolicy(paused: Bool, deniedPackageIds: Set<String>) {
+        guard let deviceId = activePeerDeviceId else { return }
+        let previouslyDenied = self.deniedPackageIds
+        let wasPaused = self.notificationsPaused
+
+        self.notificationsPaused = paused
+        self.deniedPackageIds = deniedPackageIds
+
+        // Persist.
+        UserDefaults.standard.set(paused, forKey: Self.filterPausedKeyPrefix + deviceId)
+        UserDefaults.standard.set(Array(deniedPackageIds), forKey: Self.filterDeniedKeyPrefix + deviceId)
+
+        pushNotificationFilter()
+
+        // Withdraw delivered/pending notifications that are now suppressed.
+        if paused && !wasPaused {
+            notifier.withdrawAll()
+        } else if !paused {
+            let newlyDenied = deniedPackageIds.subtracting(previouslyDenied)
+            for pkg in newlyDenied {
+                notifier.withdrawByPackage(packageId: pkg)
+            }
+        }
+    }
+
+    /// Loads persisted filter policy and observed apps for a freshly-connected device.
+    private func loadPersistedFilterState(deviceId: String) {
+        notificationsPaused = UserDefaults.standard.bool(forKey: Self.filterPausedKeyPrefix + deviceId)
+        let savedDenied = UserDefaults.standard.stringArray(forKey: Self.filterDeniedKeyPrefix + deviceId) ?? []
+        deniedPackageIds = Set(savedDenied)
+        observedApps = loadObservedApps(deviceId: deviceId)
+    }
+
+    private func pushNotificationFilter() {
+        controller.updateNotificationFilter(
+            paused: notificationsPaused,
+            deniedPackages: Array(deniedPackageIds)
+        )
+    }
+
+    private func persistObservedApps(deviceId: String) {
+        let raw = observedApps.map { ["p": $0.packageId, "n": $0.appName] }
+        UserDefaults.standard.set(raw, forKey: Self.observedAppsKeyPrefix + deviceId)
+    }
+
+    private func loadObservedApps(deviceId: String) -> [ObservedApp] {
+        guard let raw = UserDefaults.standard.array(forKey: Self.observedAppsKeyPrefix + deviceId)
+                as? [[String: String]] else { return [] }
+        return raw.compactMap { dict -> ObservedApp? in
+            guard let pkg = dict["p"], let name = dict["n"] else { return nil }
+            return ObservedApp(packageId: pkg, appName: name)
+        }
     }
 }

@@ -135,6 +135,53 @@ class NotificationMirrorTest {
         assertIs<NotifAction>(presenter.presented.last().actions.single())
         assertTrue(source.actions.none { it.key == "whatsapp-A" })
     }
+
+    // ---- New tests for #22 ---------------------------------------------------
+
+    @Test
+    fun updateFilterSendsFilterUpdateWireMessageMatchingPolicy() = runTest {
+        val presenter = FakeNotificationPresenter()
+        val sent = mutableListOf<Message>()
+        val companion = NotificationCompanion(presenter, sent::add)
+        val policy = FilterPolicy(deniedPackages = setOf("com.spam", "com.ads"), paused = false)
+
+        companion.updateFilter(policy)
+
+        val wire = sent.single()
+        assertIs<FilterUpdate>(wire)
+        assertEquals(listOf("com.ads", "com.spam"), wire.deniedPackages) // sorted
+        assertEquals(false, wire.paused)
+    }
+
+    @Test
+    fun agentRejectsDeniedPackageAfterFilterUpdateFromCompanion() = runTest {
+        val source = FakeNotificationSource()
+        val presenter = FakeNotificationPresenter()
+        val agentSent = mutableListOf<Message>()
+        lateinit var agent: NotificationAgent
+        lateinit var companion: NotificationCompanion
+        agent = NotificationAgent(source, {
+            agentSent += it
+            companion.onMessage(it)
+        }, ownPackageId = "dev.opentomac")
+        companion = NotificationCompanion(presenter, { agent.onMessage(it) })
+        agent.start(backgroundScope)
+
+        // First notification passes through.
+        source.emit(NotificationEvent.Posted(posted("msg-1", "com.chat")))
+        runCurrent()
+        assertEquals(1, presenter.presented.size)
+
+        // Mac denies com.chat via the companion.
+        companion.updateFilter(FilterPolicy(deniedPackages = setOf("com.chat"), paused = false))
+
+        // Next notification from the same app is suppressed on the phone.
+        source.emit(NotificationEvent.Posted(posted("msg-2", "com.chat")))
+        runCurrent()
+
+        // Companion presenter only received the first message.
+        assertEquals(1, presenter.presented.size)
+    }
 }
 
 private data class ActionCall(
