@@ -32,6 +32,7 @@ import dev.opentomac.android.platform.NetworkMonitor
 import dev.opentomac.android.platform.RingController
 import dev.opentomac.android.service.MirroringService
 import dev.opentomac.android.service.OpentomacControlService
+import dev.opentomac.shared.clipboard.ClipItem
 import dev.opentomac.shared.clipboard.ClipboardSync
 import dev.opentomac.shared.contacts.ContactsAgent
 import dev.opentomac.shared.crypto.Identity
@@ -111,6 +112,8 @@ object AppRuntime {
     private const val SECRET_KEY = "identity/secret"
     private const val ENDPOINT_PREFIX = "endpoint/"
     private const val AUTO_SEND_SCREENSHOTS_KEY = "settings.autoSendScreenshots"
+    private const val CLIPBOARD_HISTORY_LIMIT_KEY = "settings.clipboardHistoryLimit"
+    private val SUPPORTED_CLIPBOARD_HISTORY_LIMITS = setOf(10, 20, 50)
     private const val LINKS_CHANNEL_ID = "opentomac_links"
     private const val MIRROR_REQUESTS_CHANNEL_ID = "opentomac_mirror_requests"
     private const val MIRROR_REQUEST_NOTIFICATION_ID = 1003
@@ -187,6 +190,12 @@ object AppRuntime {
     private val mutableAutoSendScreenshots = MutableStateFlow(false)
     val autoSendScreenshots: StateFlow<Boolean> = mutableAutoSendScreenshots.asStateFlow()
 
+    private val mutableClipboardHistoryLimit = MutableStateFlow<Int?>(null)
+    val clipboardHistoryLimit: StateFlow<Int?> = mutableClipboardHistoryLimit.asStateFlow()
+
+    private val mutableClipboardHistory = MutableStateFlow<List<ClipItem>>(emptyList())
+    val clipboardHistory: StateFlow<List<ClipItem>> = mutableClipboardHistory.asStateFlow()
+
     private val mutableMirrorConsentRequested = MutableStateFlow(false)
     val mirrorConsentRequested: StateFlow<Boolean> = mutableMirrorConsentRequested.asStateFlow()
 
@@ -219,6 +228,11 @@ object AppRuntime {
                 ?.decodeToString()
                 ?.toBooleanStrictOrNull()
                 ?: false
+            val storedHistoryLimit = store.get(CLIPBOARD_HISTORY_LIMIT_KEY)
+                ?.decodeToString()
+                ?.toIntOrNull()
+                ?.takeIf { it in SUPPORTED_CLIPBOARD_HISTORY_LIMITS }
+            mutableClipboardHistoryLimit.value = storedHistoryLimit
             val identity = loadIdentity(store)
             val trusted = PersistentTrustStore(store).also { trustStore = it }
             val pairing = PairingManager(identity, trusted).also { pairingManager = it }
@@ -251,8 +265,11 @@ object AppRuntime {
                     Log.w("opentomac", "clipboard send delivered: type=${message.type}")
                 },
                 clock = SystemClock,
-                historyLimit = 20,
+                historyLimit = storedHistoryLimit,
             ).also { clipboardSync = it }
+            ownerScope.launch {
+                sync.history.snapshot.collect { mutableClipboardHistory.value = it }
+            }
             val monitor = NetworkMonitor(appContext).also { networkMonitor = it }
             monitor.start()
             mutableWifiAvailable.value = monitor.wifiAvailable.value
@@ -805,8 +822,42 @@ object AppRuntime {
         }
     }
 
+    suspend fun setClipboardHistoryLimit(limit: Int?) {
+        require(limit == null || limit in SUPPORTED_CLIPBOARD_HISTORY_LIMITS) {
+            "Unsupported clipboard history limit: $limit"
+        }
+        runCatching {
+            if (limit == null) {
+                requireNotNull(kv).remove(CLIPBOARD_HISTORY_LIMIT_KEY)
+            } else {
+                requireNotNull(kv).put(CLIPBOARD_HISTORY_LIMIT_KEY, limit.toString().encodeToByteArray())
+            }
+            clipboardSync?.history?.setLimit(limit)
+            mutableClipboardHistoryLimit.value = limit
+        }.onFailure {
+            mutableNotice.value = "Could not update clipboard history setting: ${it.userMessage()}"
+        }
+    }
+
+    fun clearClipboardHistory() {
+        clipboardSync?.history?.clear()
+    }
+
+    suspend fun copyClipboardHistoryItem(item: ClipItem) {
+        runCatching { clipboard?.apply(item) }
+            .onFailure { mutableNotice.value = "Could not copy: ${it.userMessage()}" }
+    }
+
+    suspend fun resendClipboardHistoryItem(item: ClipItem): Boolean {
+        if (!peerSupports(Capability.CLIPBOARD)) {
+            mutableNotice.value = "Connected peer needs an update for clipboard sharing"
+            return false
+        }
+        return dispatchClipboardItem(item, "Clipboard resent")
+    }
+
     private suspend fun dispatchClipboardItem(
-        item: dev.opentomac.shared.clipboard.ClipItem,
+        item: ClipItem,
         successNotice: String,
     ): Boolean {
         val sent = clipboardSync?.sendNow(item) == true

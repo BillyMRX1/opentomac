@@ -74,6 +74,29 @@ class ClipboardHistoryTest {
         history.setLimit(null)
         assertTrue(history.items().isEmpty())
     }
+
+    @Test
+    fun snapshotReflectsRecordClearAndSetLimit() = runTest {
+        val history = ClipboardHistory(10)
+        assertTrue(history.snapshot.value.isEmpty())
+
+        history.record(historyClip("first"))
+        assertEquals(listOf("first"), history.snapshot.value.map { it.historyText() })
+
+        history.record(historyClip("second"))
+        assertEquals(listOf("second", "first"), history.snapshot.value.map { it.historyText() })
+
+        history.setLimit(20)
+        repeat(25) { history.record(historyClip("item-$it")) }
+        assertEquals(20, history.snapshot.value.size)
+        assertEquals(history.items(), history.snapshot.value)
+
+        history.clear()
+        assertTrue(history.snapshot.value.isEmpty())
+
+        history.setLimit(null)
+        assertTrue(history.snapshot.value.isEmpty())
+    }
 }
 
 private suspend fun historyClip(value: String, sensitive: Boolean = false): ClipItem =
