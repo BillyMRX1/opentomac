@@ -13,6 +13,7 @@ import androidx.core.app.ServiceCompat
 import dev.opentomac.android.R
 import dev.opentomac.android.runtime.AppRuntime
 import dev.opentomac.android.ui.MainActivity
+import dev.opentomac.android.ui.SendClipboardActivity
 import dev.opentomac.shared.session.ConnectionState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -78,8 +79,8 @@ class ConnectionService : Service() {
         is ConnectionState.Connecting -> if (wifiAvailable) "Looking for your Mac…" else "Waiting for Wi-Fi"
     }
 
-    private fun buildNotification(state: ConnectionState, wifiAvailable: Boolean) =
-        NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun buildNotification(state: ConnectionState, wifiAvailable: Boolean): android.app.Notification {
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_tile_clipboard)
             .setContentTitle("opentomac")
             .setContentText(statusText(state, wifiAvailable))
@@ -89,12 +90,25 @@ class ConnectionService : Service() {
             .setContentIntent(
                 PendingIntent.getActivity(
                     this,
-                    0,
+                    CONTENT_REQUEST_CODE,
                     Intent(this, MainActivity::class.java),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                 ),
             )
-            .build()
+        if (state is ConnectionState.Connected) {
+            builder.addAction(
+                R.drawable.ic_tile_clipboard,
+                getString(R.string.tile_send_clipboard),
+                PendingIntent.getActivity(
+                    this,
+                    SEND_CLIPBOARD_REQUEST_CODE,
+                    Intent(this, SendClipboardActivity::class.java),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                ),
+            )
+        }
+        return builder.build()
+    }
 
     inner class LocalBinder : Binder() {
         val runtime: AppRuntime
@@ -104,5 +118,7 @@ class ConnectionService : Service() {
     companion object {
         const val CHANNEL_ID = "opentomac_connection"
         const val NOTIFICATION_ID = 1001
+        private const val CONTENT_REQUEST_CODE = 0
+        private const val SEND_CLIPBOARD_REQUEST_CODE = 1
     }
 }

@@ -71,6 +71,13 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.SendClipboardActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:theme="@style/Theme.Opentomac.Transparent" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

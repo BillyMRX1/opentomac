@@ -52,6 +52,16 @@ internal fun ClipboardTab(modifier: Modifier = Modifier, listState: LazyListStat
     ) {
         item {
             SectionTitle("Clipboard History")
+            Text(
+                "Android only lets apps read the clipboard while they're in the foreground, so " +
+                    "opentomac can't send new copies automatically in the background. To send " +
+                    "explicitly: add the Send clipboard tile from Quick Settings edit, use the Send clipboard " +
+                    "action on the connection notification, the share sheet from any app, or " +
+                    "select text and choose Send with opentomac.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
             HistoryLimitPicker(
                 selected = limit,
                 onSelect = { newLimit -> scope.launch { AppRuntime.setClipboardHistoryLimit(newLimit) } },
