@@ -45,6 +45,18 @@ struct DashboardView: View {
             PairingSheet(isPresented: $showPairing)
                 .environmentObject(model)
         }
+        .alert("Clipboard not sent", isPresented: clipboardNoticePresented) {
+            Button("OK") { model.clipboardNotice = nil }
+        } message: {
+            Text(model.clipboardNotice ?? "")
+        }
+    }
+
+    private var clipboardNoticePresented: Binding<Bool> {
+        Binding(
+            get: { model.clipboardNotice != nil },
+            set: { if !$0 { model.clipboardNotice = nil } }
+        )
     }
 
     private var hero: some View {

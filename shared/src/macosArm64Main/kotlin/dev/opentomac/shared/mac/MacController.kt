@@ -139,6 +139,7 @@ data class MacBatteryState(
 @OptIn(ExperimentalForeignApi::class, ExperimentalEncodingApi::class)
 class MacController(
     private val onState: (String) -> Unit,
+    private val onClipboardNotice: (String) -> Unit,
     private val onPairing: (MacPairingState) -> Unit,
     private val onDevices: (List<TrustedDevice>) -> Unit,
     /**
@@ -212,7 +213,7 @@ class MacController(
             scope.launch {
                 sessionManager.peerCapabilities.collect { onPeerCapabilities(it.toList()) }
             }
-            clipboard = MacClipboard()
+            clipboard = MacClipboard(onClipboardNotice)
             clipboardSync = ClipboardSync(
                 deviceId = identity.deviceId,
                 local = clipboard,
