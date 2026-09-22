@@ -64,6 +64,7 @@ struct ObservedApp: Identifiable, Equatable {
 @MainActor
 final class AppModel: ObservableObject {
     @Published var connectionStatus: String = "Starting"
+    @Published var clipboardNotice: String?
     @Published var pairing: MacPairingState?
     @Published var devices: [TrustedDevice] = []
     @Published private(set) var peerCapabilities: Set<String> = []
@@ -133,6 +134,9 @@ final class AppModel: ObservableObject {
         controller = MacController(
             onState: { [weak self] status in
                 Task { @MainActor in self?.connectionStatus = status }
+            },
+            onClipboardNotice: { [weak self] notice in
+                Task { @MainActor in self?.clipboardNotice = notice }
             },
             onPairing: { [weak self] state in
                 Task { @MainActor in self?.pairing = state }
