@@ -2,6 +2,30 @@
 
 All notable changes to opentomac are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.0](https://github.com/BillyMRX1/opentomac/compare/v0.5.0...v0.6.0) (2026-09-22)
+
+
+### Features
+
+* **android:** add clipboard history tab ([fe017d7](https://github.com/BillyMRX1/opentomac/commit/fe017d79162cbac5dfe9fa5fd44d5d7f262f676c))
+* **android:** add clipboard history tab ([7873181](https://github.com/BillyMRX1/opentomac/commit/78731813a1c8ca9da8bb776f19b8fea74330eff1)), closes [#16](https://github.com/BillyMRX1/opentomac/issues/16)
+* **android:** add explicit background clipboard send ([a7b32f7](https://github.com/BillyMRX1/opentomac/commit/a7b32f702a3c7123727b946ab3296e4138827491))
+* **android:** add explicit clipboard send ([88d610b](https://github.com/BillyMRX1/opentomac/commit/88d610bf3cb7c98703fd7db9865dcd1cbdf4da77))
+* **android:** browse received files ([89b9d10](https://github.com/BillyMRX1/opentomac/commit/89b9d10585798ec9961ce42e04ae80b9c5950d19))
+* **android:** browse received files ([47a05f2](https://github.com/BillyMRX1/opentomac/commit/47a05f24427c76807cbbcddb7bbe06d0dafb177f)), closes [#17](https://github.com/BillyMRX1/opentomac/issues/17)
+* **notifications:** add notification filters ([00ff2d0](https://github.com/BillyMRX1/opentomac/commit/00ff2d0a9fca434563ba5abd12fa006b8f5a3e56))
+* **notifications:** add notification filters ([2c6c529](https://github.com/BillyMRX1/opentomac/commit/2c6c529899d04f3d705bc1fc78cbc0daccdba760)), closes [#22](https://github.com/BillyMRX1/opentomac/issues/22)
+* **notifications:** sync dismissals to phone ([42a2fd1](https://github.com/BillyMRX1/opentomac/commit/42a2fd18ea76258b0f6c6a568c542ae06eea9f08))
+* **notifications:** sync dismissals to phone ([40001a0](https://github.com/BillyMRX1/opentomac/commit/40001a022891318df7237d72c2ead740d724a1ff)), closes [#21](https://github.com/BillyMRX1/opentomac/issues/21)
+* **transfers:** add file and history management ([8405955](https://github.com/BillyMRX1/opentomac/commit/8405955eb07fde9b14d1efff2803a62f48c90968))
+* **transfers:** add file management ([ddc7fec](https://github.com/BillyMRX1/opentomac/commit/ddc7fec5924755a73093b0114c33e7a7ba11126d))
+
+
+### Bug Fixes
+
+* **clipboard:** support common Mac image copies ([ec367fb](https://github.com/BillyMRX1/opentomac/commit/ec367fba31ac0572d7ed85f091f5db80ee3b7e1f))
+* **clipboard:** support Mac image copies ([72fbf0c](https://github.com/BillyMRX1/opentomac/commit/72fbf0c6e8d1b12f2ec9c520006a90c92180afff))
+
 ## [0.5.0](https://github.com/BillyMRX1/opentomac/compare/v0.4.0...v0.5.0) (2026-09-13)
 
 
