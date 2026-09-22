@@ -673,6 +673,11 @@ class MacController(
         scope.launch { transferEngine.cancel(jobId) }
     }
 
+    /** Clears finished transfer history; active transfers and received files are unaffected. */
+    fun clearCompletedTransfers() {
+        scope.launch { transferEngine.clearCompleted() }
+    }
+
     /** Requests the original phone photo; it arrives through the normal transfer pipeline. */
     fun importPhoto(id: String) {
         scope.launch { safeSend(ChannelId.BULK, MediaFetchRequest(id)) }

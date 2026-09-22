@@ -15,16 +15,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +63,8 @@ internal fun TransfersTab(modifier: Modifier = Modifier, listState: LazyListStat
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    var pendingDeleteFile by remember { mutableStateOf<String?>(null) }
+    var pendingDeleteAll by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { AppRuntime.refreshReceivedFiles() }
     DisposableEffect(lifecycleOwner) {
@@ -83,6 +91,15 @@ internal fun TransfersTab(modifier: Modifier = Modifier, listState: LazyListStat
                     body = "Sent and received files appear here.",
                 )
             } else {
+                val transferStates = transfers.map { job -> job.progress.collectAsStateWithLifecycle().value }
+                val hasCompletedTransfers = transferStates.any { transferStatusTone(it.state) != TransferStatusTone.ACTIVE }
+                if (hasCompletedTransfers) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp)) {
+                        OutlinedButton(onClick = { AppRuntime.clearCompletedTransfers() }) {
+                            Text("Clear completed")
+                        }
+                    }
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     transfers.sortedByDescending { it.jobId }.forEach { job ->
                         TransferRow(job)
@@ -99,6 +116,11 @@ internal fun TransfersTab(modifier: Modifier = Modifier, listState: LazyListStat
                     body = "Files received from your Mac appear here.",
                 )
             } else {
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp)) {
+                    OutlinedButton(onClick = { pendingDeleteAll = true }) {
+                        Text("Delete all")
+                    }
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     receivedFiles.forEach { file ->
                         ReceivedFileRow(
@@ -112,11 +134,56 @@ internal fun TransfersTab(modifier: Modifier = Modifier, listState: LazyListStat
                                     }
                                 }
                             },
+                            onDelete = { pendingDeleteFile = file.name },
                         )
                     }
                 }
             }
         }
+    }
+
+    pendingDeleteFile?.let { name ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteFile = null },
+            title = { Text("Delete file") },
+            text = {
+                Text("This permanently deletes \"$name\" from this phone, not just from transfer history. This cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDeleteFile = null
+                        scope.launch { AppRuntime.deleteReceivedFile(name) }
+                    },
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteFile = null }) { Text("Cancel") }
+            },
+        )
+    }
+    if (pendingDeleteAll) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteAll = false },
+            title = { Text("Delete all received files") },
+            text = {
+                Text(
+                    "This permanently deletes all ${receivedFiles.size} received files from this phone, " +
+                        "not just from transfer history. This cannot be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDeleteAll = false
+                        scope.launch { AppRuntime.deleteAllReceivedFiles() }
+                    },
+                ) { Text("Delete all") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteAll = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 
@@ -184,7 +251,7 @@ private fun TransferRow(job: TransferJob) {
 }
 
 @Composable
-private fun ReceivedFileRow(file: ReceivedFile, onOpen: () -> Unit) {
+private fun ReceivedFileRow(file: ReceivedFile, onOpen: () -> Unit, onDelete: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
         shape = MaterialTheme.shapes.large,
@@ -209,6 +276,11 @@ private fun ReceivedFileRow(file: ReceivedFile, onOpen: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            FilledTonalButton(
+                onClick = onDelete,
+                shape = RoundedCornerShape(18.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+            ) { Text("Delete") }
         }
     }
 }

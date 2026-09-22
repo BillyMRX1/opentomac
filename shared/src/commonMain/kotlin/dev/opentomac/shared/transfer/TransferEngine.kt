@@ -160,6 +160,18 @@ class TransferEngine(
 
     suspend fun resume(job: TransferJob) = resume(job.jobId)
 
+    /** Removes terminal (DONE/FAILED/CANCELLED) jobs and their bookkeeping; OFFERED/ACTIVE jobs are kept. */
+    fun clearCompleted() {
+        val terminalIds = jobs.values.filter { it.progress.value.state.isTerminal }.map { it.jobId }
+        if (terminalIds.isEmpty()) return
+        terminalIds.forEach { jobId ->
+            jobs.remove(jobId)
+            sends.remove(jobId)
+            receives.remove(jobId)
+        }
+        mutableTransfers.value = jobs.values.toList()
+    }
+
     private suspend fun receiveOffer(offer: FileOffer) {
         val resumed = receives[offer.jobId]
         if (resumed != null && resumed.job.files == offer.files && resumed.resumable) {
