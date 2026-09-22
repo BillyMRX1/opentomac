@@ -334,6 +334,44 @@ class TransferEngineTest {
     }
 
     @Test
+    fun clearCompletedRemovesTerminalJobsAndKeepsActiveJobs() = runTest {
+        val sourceFs = FakeFileSystem()
+        val destinationFs = FakeFileSystem()
+        val doneSource = sourceFile(sourceFs, "/source/done.txt", "done".encodeToByteArray())
+        val activeSource = sourceFile(sourceFs, "/source/active.txt", "active".encodeToByteArray())
+        lateinit var receiver: TransferEngine
+        val sender = TransferEngine(
+            destinationDir = "/unused".toPath(),
+            destinationFileSystem = sourceFs,
+            outbound = { receiver.onMessage(it) },
+            onOffer = ::acceptAll,
+            clock = TestClock(),
+            scope = backgroundScope,
+        )
+        receiver = TransferEngine(
+            destinationDir = "/received".toPath(),
+            destinationFileSystem = destinationFs,
+            outbound = sender::onMessage,
+            onOffer = ::acceptAll,
+            clock = TestClock(),
+            scope = backgroundScope,
+        )
+
+        val doneJob = sender.offer(listOf(doneSource), jobId = "done-job")
+        runCurrent()
+        assertEquals(TransferState.DONE, doneJob.progress.value.state)
+
+        val activeJob = sender.offer(listOf(activeSource), jobId = "active-job")
+        assertEquals(TransferState.ACTIVE, activeJob.progress.value.state)
+
+        sender.clearCompleted()
+
+        assertEquals(null, sender.job("done-job"))
+        assertEquals(TransferState.ACTIVE, sender.job("active-job")?.progress?.value?.state)
+        assertEquals(listOf("active-job"), sender.transfers.value.map { it.jobId })
+    }
+
+    @Test
     fun chunkSizeAlwaysFitsFrameLimit() {
         assertTrue(TransferEngine.CHUNK_BYTES < FrameCodec.MAX_FRAME_BYTES)
     }

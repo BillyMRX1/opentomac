@@ -721,10 +721,38 @@ object AppRuntime {
         transferEngine?.cancel(jobId)
     }
 
+    /** Clears finished transfer history; received files and any active transfer are untouched. */
+    fun clearCompletedTransfers() {
+        transferEngine?.clearCompleted()
+    }
+
     /** Rescans the private receive directory, for tab resume and post-transfer refreshes. */
     suspend fun refreshReceivedFiles() {
         val dir = receiveDir ?: return
         mutableReceivedFiles.value = withContext(Dispatchers.IO) { scanReceivedFiles(dir) }
+    }
+
+    /** Deletes one received file, if still present; transfer job history is untouched. */
+    suspend fun deleteReceivedFile(name: String) {
+        val dir = receiveDir ?: return
+        val deleted = withContext(Dispatchers.IO) {
+            val file = File(dir, name)
+            !file.exists() || file.delete()
+        }
+        if (!deleted) mutableNotice.value = "Could not delete \"$name\""
+        refreshReceivedFiles()
+    }
+
+    /** Deletes every currently listed received file; transfer job history is untouched. */
+    suspend fun deleteAllReceivedFiles() {
+        val dir = receiveDir ?: return
+        val failures = withContext(Dispatchers.IO) {
+            scanReceivedFiles(dir).count { !File(dir, it.name).delete() }
+        }
+        if (failures > 0) {
+            mutableNotice.value = "Could not delete $failures received file${if (failures == 1) "" else "s"}"
+        }
+        refreshReceivedFiles()
     }
 
     /** A previously listed file vanished from disk; notify the user and drop it from the list. */

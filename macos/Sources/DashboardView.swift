@@ -368,6 +368,11 @@ struct DashboardView: View {
                 Text("Transfers")
                     .font(DesignTokens.TypeStyle.section)
                 Spacer()
+                if model.transfers.contains(where: { $0.state != "OFFERED" && $0.state != "ACTIVE" }) {
+                    Button("Clear completed") { model.clearCompletedTransfers() }
+                        .buttonStyle(.borderless)
+                        .font(DesignTokens.TypeStyle.meta)
+                }
                 Button("Show received") { model.revealReceived() }
                     .buttonStyle(.borderless)
                     .font(DesignTokens.TypeStyle.meta)

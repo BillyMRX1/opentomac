@@ -568,6 +568,8 @@ final class AppModel: ObservableObject {
 
     func cancelTransfer(_ id: String) { controller.cancelTransfer(jobId: id) }
 
+    func clearCompletedTransfers() { controller.clearCompletedTransfers() }
+
     func revealReceived() {
         let path = controller.receiveDirectoryPath()
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
