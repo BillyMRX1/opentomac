@@ -8,6 +8,7 @@ import androidx.lifecycle.lifecycleScope
 import dev.opentomac.android.runtime.AppRuntime
 import dev.opentomac.android.service.ConnectionService
 import dev.opentomac.shared.session.ConnectionState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -24,12 +25,15 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * Flow:
  *  1. Start (or reconnect to an already-running) ConnectionService so the runtime initialises.
- *  2. Wait up to 5 seconds for the runtime to be ready and a connection to be established.
- *  3. Call AppRuntime.sendClipboard() and show a Toast with the result.
- *  4. Finish immediately, leaving no UI on screen.
+ *  2. Wait for window focus. Android's clipboard check is "does this app own the focused window",
+ *     and focus can arrive after onResume, so reading earlier can be denied.
+ *  3. Wait up to 5 seconds for the runtime to be ready and a connection to be established.
+ *  4. Call AppRuntime.sendClipboard() and show a Toast with the result.
+ *  5. Finish immediately, leaving no UI on screen.
  */
 class SendClipboardActivity : ComponentActivity() {
     private var sending = false
+    private var focusTimeout: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,11 +42,24 @@ class SendClipboardActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (sending) return
+        if (sending || focusTimeout != null) return
+        // This transparent window covers the screen, so never let it linger if focus never comes
+        // (for example when the keyguard or a system dialog keeps it).
+        focusTimeout = lifecycleScope.launch {
+            delay(FOCUS_TIMEOUT_MS)
+            if (!sending) {
+                Toast.makeText(this@SendClipboardActivity, "Could not read clipboard. Try again.", Toast.LENGTH_SHORT).show()
+                finish()
+            }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus || sending) return
         sending = true
+        focusTimeout?.cancel()
         lifecycleScope.launch {
-            // Android can deny a clipboard read during the brief focus transition into this activity.
-            delay(250)
             val connected = withTimeoutOrNull(5_000) {
                 AppRuntime.awaitReady()
                 AppRuntime.connectionState.first { it is ConnectionState.Connected }
@@ -56,5 +73,9 @@ class SendClipboardActivity : ComponentActivity() {
             Toast.makeText(this@SendClipboardActivity, message, Toast.LENGTH_SHORT).show()
             finish()
         }
+    }
+
+    private companion object {
+        const val FOCUS_TIMEOUT_MS = 2_000L
     }
 }
